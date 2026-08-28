@@ -1,7 +1,6 @@
 use crate::protocol::{ExecutionRequest, ExecutionResult};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 pub struct ProcessIsolationRunner;
@@ -22,6 +21,7 @@ impl ProcessIsolationRunner {
         cmd.current_dir(&request.working_dir);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
+        cmd.kill_on_drop(true);
         cmd.env_clear();
         for (k, v) in &request.env {
             cmd.env(k, v);
@@ -38,13 +38,15 @@ impl ProcessIsolationRunner {
         {
             unsafe {
                 cmd.pre_exec(|| {
-                    libc::setpgid(0, 0);
+                    if libc::setpgid(0, 0) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
                     Ok(())
                 });
             }
         }
 
-        let mut child = cmd.spawn()?;
+        let child = cmd.spawn()?;
 
         #[cfg(windows)]
         let _job_guard = if request.profile.level != crate::protocol::IsolationLevel::Off {
@@ -53,61 +55,37 @@ impl ProcessIsolationRunner {
             None
         };
 
-        let mut stdout_handle = child.stdout.take();
-        let mut stderr_handle = child.stderr.take();
-
-        let mut stdout_buf = Vec::new();
-        let mut stderr_buf = Vec::new();
-
         let timeout_duration = request
             .profile
             .timeout_seconds
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(3600));
 
-        let wait_fut = async {
-            let mut read_stdout_fut = async {
-                if let Some(ref mut out) = stdout_handle {
-                    let _ = out.read_to_end(&mut stdout_buf).await;
-                }
-            };
-            let mut read_stderr_fut = async {
-                if let Some(ref mut err) = stderr_handle {
-                    let _ = err.read_to_end(&mut stderr_buf).await;
-                }
-            };
-            let (status_res, _, _) = tokio::join!(child.wait(), read_stdout_fut, read_stderr_fut);
-            status_res
-        };
-
-        let output_res = tokio::time::timeout(timeout_duration, wait_fut).await;
+        let output_res = tokio::time::timeout(timeout_duration, child.wait_with_output()).await;
         let elapsed = start_time.elapsed().as_millis() as u64;
 
         match output_res {
-            Ok(Ok(status)) => Ok(ExecutionResult {
+            Ok(Ok(output)) => Ok(ExecutionResult {
                 task_id: request.task_id,
-                exit_code: status.code().unwrap_or(-1),
-                stdout: stdout_buf,
-                stderr: stderr_buf,
+                exit_code: output.status.code().unwrap_or(-1),
+                stdout: output.stdout,
+                stderr: output.stderr,
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: 0,
                 violations: Vec::new(),
                 hermetic_guarantee: true,
             }),
             Ok(Err(err)) => Err(anyhow::anyhow!("process execution failed: {err}")),
-            Err(_) => {
-                let _ = child.kill().await;
-                Ok(ExecutionResult {
-                    task_id: request.task_id,
-                    exit_code: 124,
-                    stdout: Vec::new(),
-                    stderr: b"process timed out under hermetic sandbox policy".to_vec(),
-                    execution_duration_ms: elapsed,
-                    peak_memory_bytes: 0,
-                    violations: Vec::new(),
-                    hermetic_guarantee: false,
-                })
-            }
+            Err(_) => Ok(ExecutionResult {
+                task_id: request.task_id,
+                exit_code: 124,
+                stdout: Vec::new(),
+                stderr: b"process timed out under hermetic sandbox policy".to_vec(),
+                execution_duration_ms: elapsed,
+                peak_memory_bytes: 0,
+                violations: Vec::new(),
+                hermetic_guarantee: false,
+            }),
         }
     }
 

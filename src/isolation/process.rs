@@ -102,7 +102,11 @@ impl ProcessIsolationRunner {
             JobObjectExtendedLimitInformation, SetInformationJobObject,
         };
 
-        let raw_handle = child.raw_handle()?;
+        let raw_handle = child.as_raw_handle();
+        if raw_handle.is_null() {
+            return None;
+        }
+
         unsafe {
             let job: HANDLE = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if job.is_null() {

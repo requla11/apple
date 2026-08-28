@@ -1,8 +1,6 @@
-use apple::isolation::{
-    HermeticEnvironmentSanitizer, HermeticFilesystemManager, NetworkIsolationController,
-};
-use apple::protocol::{IsolationLevel, MountKind, MountRule, SandboxProfile};
-use apple::{AppleClient, AppleDaemonServer, ExecutionRequest, SandboxMonitor};
+use apple::isolation::{HermeticEnvironmentSanitizer, NetworkIsolationController};
+use apple::protocol::{IsolationLevel, SandboxProfile};
+use apple::{AppleClient, AppleDaemonServer, SandboxMonitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

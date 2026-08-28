@@ -1,4 +1,4 @@
-use crate::protocol::{ExecutionRequest, ExecutionResult, IsolationLevel};
+use crate::protocol::{ExecutionRequest, ExecutionResult};
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::process::Command;
@@ -28,7 +28,7 @@ impl ProcessIsolationRunner {
 
         #[cfg(windows)]
         {
-            if request.profile.level != IsolationLevel::Off {
+            if request.profile.level != crate::protocol::IsolationLevel::Off {
                 cmd.creation_flags(0x08000000);
             }
         }

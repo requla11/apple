@@ -1,6 +1,7 @@
-use crate::protocol::{ExecutionRequest, ExecutionResult, IsolationLevel};
+use crate::protocol::{ExecutionRequest, ExecutionResult};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 pub struct ProcessIsolationRunner;
@@ -28,7 +29,7 @@ impl ProcessIsolationRunner {
 
         #[cfg(windows)]
         {
-            if request.profile.level != IsolationLevel::Off {
+            if request.profile.level != crate::protocol::IsolationLevel::Off {
                 cmd.creation_flags(0x08000000);
             }
         }
@@ -46,11 +47,17 @@ impl ProcessIsolationRunner {
         let mut child = cmd.spawn()?;
 
         #[cfg(windows)]
-        let _job_guard = if request.profile.level != IsolationLevel::Off {
+        let _job_guard = if request.profile.level != crate::protocol::IsolationLevel::Off {
             Self::apply_windows_job_object(&child, request.profile.memory_limit_mb)
         } else {
             None
         };
+
+        let mut stdout_handle = child.stdout.take();
+        let mut stderr_handle = child.stderr.take();
+
+        let mut stdout_buf = Vec::new();
+        let mut stderr_buf = Vec::new();
 
         let timeout_duration = request
             .profile
@@ -58,15 +65,30 @@ impl ProcessIsolationRunner {
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(3600));
 
-        let output_res = tokio::time::timeout(timeout_duration, child.wait_with_output()).await;
+        let wait_fut = async {
+            let mut read_stdout_fut = async {
+                if let Some(ref mut out) = stdout_handle {
+                    let _ = out.read_to_end(&mut stdout_buf).await;
+                }
+            };
+            let mut read_stderr_fut = async {
+                if let Some(ref mut err) = stderr_handle {
+                    let _ = err.read_to_end(&mut stderr_buf).await;
+                }
+            };
+            let (status_res, _, _) = tokio::join!(child.wait(), read_stdout_fut, read_stderr_fut);
+            status_res
+        };
+
+        let output_res = tokio::time::timeout(timeout_duration, wait_fut).await;
         let elapsed = start_time.elapsed().as_millis() as u64;
 
         match output_res {
-            Ok(Ok(output)) => Ok(ExecutionResult {
+            Ok(Ok(status)) => Ok(ExecutionResult {
                 task_id: request.task_id,
-                exit_code: output.status.code().unwrap_or(-1),
-                stdout: output.stdout,
-                stderr: output.stderr,
+                exit_code: status.code().unwrap_or(-1),
+                stdout: stdout_buf,
+                stderr: stderr_buf,
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: 0,
                 violations: Vec::new(),

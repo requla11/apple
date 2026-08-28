@@ -98,24 +98,23 @@ fn test_hardlink_tree_mirroring() {
     assert_eq!(content, b"content-to-link");
 }
 
-#[test]
-fn test_determinism_verifier_instantiation() {
+#[tokio::test]
+async fn test_determinism_verifier_instantiation() {
     let temp_dir = tempfile::tempdir().unwrap();
     let verifier = DeterminismVerifier::new(temp_dir.path().to_path_buf());
-    assert!(
-        verifier
-            .verify_reproducible(
-                apple::protocol::ExecutionRequest {
-                    task_id: "dummy".to_string(),
-                    working_dir: temp_dir.path().to_path_buf(),
-                    argv: vec![],
-                    env: HashMap::new(),
-                    profile: SandboxProfile::default(),
-                },
-                Path::new("non_existent")
-            )
-            .is_err()
-    );
+    let res = verifier
+        .verify_reproducible(
+            apple::protocol::ExecutionRequest {
+                task_id: "dummy".to_string(),
+                working_dir: temp_dir.path().to_path_buf(),
+                argv: vec![],
+                env: HashMap::new(),
+                profile: SandboxProfile::default(),
+            },
+            Path::new("non_existent"),
+        )
+        .await;
+    assert!(res.is_err());
 }
 
 #[tokio::test]

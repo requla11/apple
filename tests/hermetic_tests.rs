@@ -1,7 +1,9 @@
 use apple::isolation::{
     HermeticEnvironmentSanitizer, HermeticFilesystemManager, NetworkIsolationController,
 };
+use apple::profile_detector::{LanguageKind, ProfileDetector};
 use apple::protocol::{ExecutionResult, IsolationLevel, SandboxProfile};
+use apple::telemetry::TelemetryCollector;
 use apple::{AppleClient, AppleDaemonServer, AuditStore, DeterminismVerifier, SandboxMonitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -96,6 +98,34 @@ fn test_hardlink_tree_mirroring() {
     assert!(mirrored_file.exists());
     let content = std::fs::read(mirrored_file).unwrap();
     assert_eq!(content, b"content-to-link");
+}
+
+#[test]
+fn test_profile_detector_identifies_rust_project() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cargo_toml = temp_dir.path().join("Cargo.toml");
+    std::fs::write(&cargo_toml, b"[package]\nname = \"demo\"\n").unwrap();
+
+    let lang = ProfileDetector::detect_language(temp_dir.path());
+    assert_eq!(lang, LanguageKind::Rust);
+
+    let profile = ProfileDetector::auto_generate_profile(temp_dir.path());
+    assert_eq!(profile.name, "auto-rust-hermetic");
+    assert!(!profile.allow_network);
+    assert!(profile.whitelisted_env.contains(&"RUSTFLAGS".to_string()));
+}
+
+#[test]
+fn test_telemetry_collector_stores_resource_metrics() {
+    let collector = TelemetryCollector::new();
+    collector.record_metrics("task_build_1", 45, 128, 0);
+
+    let metrics = collector.get_metrics("task_build_1");
+    assert!(metrics.is_some());
+    let m = metrics.unwrap();
+    assert_eq!(m.cpu_time_ms, 45);
+    assert_eq!(m.peak_memory_mb, 128);
+    assert!(m.is_clean);
 }
 
 #[tokio::test]

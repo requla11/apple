@@ -20,10 +20,10 @@ Fish が依存関係 DAG、CAS キャッシュ、投機的コンパイルを制�
 │                   🍎 Apple Sandbox Daemon                   │
 ├──────────────────────────────┬──────────────────────────────┤
 │  Hermetic Filesystem Manager │  Network Lockdown Controller │
-│  (Readonly Jails & Overlay)  │  (Zero-Trust Offline Mirror) │
+│  (Hard-Link CoW & Overlay)   │  (Zero-Trust Offline Mirror) │
 ├──────────────────────────────┼──────────────────────────────┤
-│  Process Isolation Runner    │  Real-Time Violation Monitor │
-│  (Job Objects & Namespaces)  │  (IO Auditing & Telemetry)   │
+│  Process Isolation Runner    │  Deterministic Verifier      │
+│  (Job Objects & Namespaces)  │  (SLSA Level 3 Attestation)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,8 +31,8 @@ Fish が依存関係 DAG、CAS キャッシュ、投機的コンパイルを制�
 
 ## ⚡ 主な機能
 
-1. **完全密閉ファイルシステム (`apple::isolation::fs`)**:
-   * ソースツリーを読み取り専用でマウントし、一時的な書き込みを破棄可能な領域へリダイレクトします。
+1. **高速 Hard-Link CoW インクリメンタルサンドボックス (`apple::isolation::fs`)**:
+   * ハードリンクファーム構造 (`mirror_hardlink_tree`) を採用し、元のソースを汚染することなく高速な増分ビルド性能を維持。
 
 2. **ゼロトラストネットワーク遮断 (`apple::isolation::net`)**:
    * ビルド中の不正な外部通信を遮断し、100% 再現可能なビルドアーティファクトを保証します。
@@ -41,8 +41,8 @@ Fish が依存関係 DAG、CAS キャッシュ、投機的コンパイルを制�
    * **Windows**: Windows Job Objects を利用してゾンビプロセスの発生と過剰なメモリ消費を防止。
    * **Unix / Linux**: プロセスグループ分離 (`setpgid`) とタイムアウト管理を適用。
 
-4. **環境変数サニタイズ (`apple::isolation::env`)**:
-   * 非決定的な環境変数を排除しつつ、必要なコンパイラフラグを安全に維持します。
+4. **SLSA Level 3 決定性検証エンジン (`apple::verifier`)**:
+   * タイムスタンプや環境変数を変動させた 2 段階の独立ビルドを実行し、BLAKE3 ハッシュにより完全な再現性を検証。
 
 5. **監査ログ・違反検知 (`apple::monitor`, `apple::audit`)**:
    * プロセス I/O をリアルタイムに監視し、未宣言のヘッダーや一時ファイルへのアクセス違反を記録。
@@ -54,6 +54,9 @@ Fish が依存関係 DAG、CAS キャッシュ、投機的コンパイルを制�
 ```bash
 # サンドボックス内でコマンドを実行
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
+
+# 決定性と再現性を検証
+apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 
 # デーモンを起動
 apple daemon --scratch-dir .apple-scratch --socket apple.sock

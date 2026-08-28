@@ -45,19 +45,49 @@ impl HermeticFilesystemManager {
         Ok(())
     }
 
+    pub fn mirror_hardlink_tree(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
+        if !src.exists() {
+            return Ok(());
+        }
+        if src.is_file() {
+            if let Some(parent) = dst.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if std::fs::hard_link(src, dst).is_err() {
+                std::fs::copy(src, dst)?;
+            }
+            return Ok(());
+        }
+
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let dest_path = dst.join(entry.file_name());
+            if entry_path.is_dir() {
+                Self::mirror_hardlink_tree(&entry_path, &dest_path)?;
+            } else {
+                if let Some(parent) = dest_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                if std::fs::hard_link(&entry_path, &dest_path).is_err() {
+                    std::fs::copy(&entry_path, &dest_path)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn link_or_copy_readonly(&self, src: &Path, dst: &Path) -> Result<(), std::io::Error> {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
         if src.is_file() {
-            #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(src, dst)?;
-            }
-            #[cfg(windows)]
-            {
+            if std::fs::hard_link(src, dst).is_err() {
                 std::fs::copy(src, dst)?;
             }
+        } else if src.is_dir() {
+            Self::mirror_hardlink_tree(src, dst)?;
         }
         Ok(())
     }

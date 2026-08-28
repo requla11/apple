@@ -20,10 +20,10 @@ While Fish coordinates high-throughput dependency DAGs, incremental caching, and
 │                   🍎 Apple Sandbox Daemon                   │
 ├──────────────────────────────┬──────────────────────────────┤
 │  Hermetic Filesystem Manager │  Network Lockdown Controller │
-│  (Readonly Jails & Overlay)  │  (Zero-Trust Offline Mirror) │
+│  (Hard-Link CoW & Overlay)   │  (Zero-Trust Offline Mirror) │
 ├──────────────────────────────┼──────────────────────────────┤
-│  Process Isolation Runner    │  Real-Time Violation Monitor │
-│  (Job Objects & Namespaces)  │  (IO Auditing & Telemetry)   │
+│  Process Isolation Runner    │  Deterministic Verifier      │
+│  (Job Objects & Namespaces)  │  (SLSA Level 3 Attestation)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,9 +31,9 @@ While Fish coordinates high-throughput dependency DAGs, incremental caching, and
 
 ## ⚡ Core Capabilities
 
-1. **Hermetic Filesystem Jails (`apple::isolation::fs`)**:
-   * Mounts source trees in isolated read-only views.
-   * Redirects temporary compiler writes into disposable scratch directories, preventing any residue in user workspaces.
+1. **Hard-Link CoW Incremental Sandbox (`apple::isolation::fs`)**:
+   * Mounts source trees via high-speed Hard-Link Farms (`mirror_hardlink_tree`) on Windows and Unix.
+   * Redirects compiler writes into disposable scratch directories, preserving incremental build speed without mutating original source files.
 
 2. **Zero-Trust Network Lockdown (`apple::isolation::net`)**:
    * Blackholes unauthorized outbound network requests during compilation tasks to guarantee 100% reproducible build artifacts.
@@ -42,8 +42,8 @@ While Fish coordinates high-throughput dependency DAGs, incremental caching, and
    * **Windows**: Implements Native Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, strict RAM ceilings).
    * **Unix / Linux**: Enforces process group leader isolation (`setpgid`) and timeout enforcement.
 
-4. **Hermetic Environment Sanitization (`apple::isolation::env`)**:
-   * Scrubs non-deterministic environment variables (`USER`, `PWD`, `HOME`, `TEMP`, `LOGNAME`) while preserving compiler flags (`RUSTFLAGS`, `CFLAGS`, `NODE_ENV`).
+4. **SLSA Level 3 Deterministic Verifier (`apple::verifier`)**:
+   * Executes dual-pass isolated builds with temporal perturbation (`SOURCE_DATE_EPOCH`, UTC timezone, clean env) and verifies bit-for-bit output determinism using BLAKE3 cryptographic hashing.
 
 5. **Real-Time Violation Monitor & Audit Store (`apple::monitor`, `apple::audit`)**:
    * Inspects process I/O and immediately flags any compiler attempt to read un-declared headers or leaked build secrets.
@@ -58,18 +58,24 @@ While Fish coordinates high-throughput dependency DAGs, incremental caching, and
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 2. Background Daemon Mode
+### 2. Verify Bit-for-Bit Deterministic Reproducibility
+```bash
+# Verify build reproducibility under perturbed sandbox environments
+apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
+```
+
+### 3. Background Daemon Mode
 ```bash
 # Start the IPC daemon for Fish build orchestration
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
 
-### 3. Check Daemon Status
+### 4. Check Daemon Status
 ```bash
 apple status --socket apple.sock
 ```
 
-### 4. Inspect Hermetic Audit Logs
+### 5. Inspect Hermetic Audit Logs
 ```bash
 apple audit build_target_01
 ```

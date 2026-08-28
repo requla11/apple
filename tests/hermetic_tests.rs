@@ -1,6 +1,8 @@
-use apple::isolation::{HermeticEnvironmentSanitizer, NetworkIsolationController};
+use apple::isolation::{
+    HermeticEnvironmentSanitizer, HermeticFilesystemManager, NetworkIsolationController,
+};
 use apple::protocol::{ExecutionResult, IsolationLevel, SandboxProfile};
-use apple::{AppleClient, AppleDaemonServer, AuditStore, SandboxMonitor};
+use apple::{AppleClient, AppleDaemonServer, AuditStore, DeterminismVerifier, SandboxMonitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -77,6 +79,43 @@ fn test_audit_store_records_and_retrieves_report() {
     assert_eq!(rep.duration_ms, 120);
     assert!(rep.hermetic_guarantee);
     assert_eq!(rep.total_violations, 0);
+}
+
+#[test]
+fn test_hardlink_tree_mirroring() {
+    let src_dir = tempfile::tempdir().unwrap();
+    let dst_dir = tempfile::tempdir().unwrap();
+
+    let file_path = src_dir.path().join("source.txt");
+    std::fs::write(&file_path, b"content-to-link").unwrap();
+
+    let res = HermeticFilesystemManager::mirror_hardlink_tree(src_dir.path(), dst_dir.path());
+    assert!(res.is_ok());
+
+    let mirrored_file = dst_dir.path().join("source.txt");
+    assert!(mirrored_file.exists());
+    let content = std::fs::read(mirrored_file).unwrap();
+    assert_eq!(content, b"content-to-link");
+}
+
+#[test]
+fn test_determinism_verifier_instantiation() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let verifier = DeterminismVerifier::new(temp_dir.path().to_path_buf());
+    assert!(
+        verifier
+            .verify_reproducible(
+                apple::protocol::ExecutionRequest {
+                    task_id: "dummy".to_string(),
+                    working_dir: temp_dir.path().to_path_buf(),
+                    argv: vec![],
+                    env: HashMap::new(),
+                    profile: SandboxProfile::default(),
+                },
+                Path::new("non_existent")
+            )
+            .is_err()
+    );
 }
 
 #[tokio::test]

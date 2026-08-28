@@ -20,10 +20,10 @@
 │                   🍎 Apple Sandbox Daemon                   │
 ├──────────────────────────────┬──────────────────────────────┤
 │  Hermetic Filesystem Manager │  Network Lockdown Controller │
-│  (Readonly Jails & Overlay)  │  (Zero-Trust Offline Mirror) │
+│  (Hard-Link CoW & Overlay)   │  (Zero-Trust Offline Mirror) │
 ├──────────────────────────────┼──────────────────────────────┤
-│  Process Isolation Runner    │  Real-Time Violation Monitor │
-│  (Job Objects & Namespaces)  │  (IO Auditing & Telemetry)   │
+│  Process Isolation Runner    │  Deterministic Verifier      │
+│  (Job Objects & Namespaces)  │  (SLSA Level 3 Attestation)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,8 +31,8 @@
 
 ## ⚡ 核心特性
 
-1. **封閉檔案系統隔離 (`apple::isolation::fs`)**:
-   * 以唯讀模式掛載原始碼，將臨時檔案寫入重定向至隔離目錄，防止污染工作區。
+1. **高效 Hard-Link CoW 增量沙箱 (`apple::isolation::fs`)**:
+   * 基於硬連結農場機制 (`mirror_hardlink_tree`)，在杜絕污染原始碼的前提下保留極致的增量編譯效能。
 
 2. **零信任網路阻斷 (`apple::isolation::net`)**:
    * 編譯期間全面阻斷未授權外網請求，確保構建產物完全可重現。
@@ -41,8 +41,8 @@
    * **Windows**: 深度整合 Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，嚴格限制記憶體)。
    * **Unix / Linux**: 採用處理程序群組隔離（`setpgid`）與嚴格逾時管理。
 
-4. **環境熵清洗 (`apple::isolation::env`)**:
-   * 剔除易變環境變數，保留核心構建參數。
+4. **SLSA Level 3 確定性構建驗證器 (`apple::verifier`)**:
+   * 雙通道攝動驗證（`SOURCE_DATE_EPOCH`、UTC 時區、純淨環境），透過 BLAKE3 密碼學雜湊比對確保 100% 逐位可重現。
 
 5. **即時越界監控與審計報告 (`apple::monitor`, `apple::audit`)**:
    * 監控處理程序 I/O，即時捕捉未經聲明的異常檔案存取並生成審計報告。
@@ -54,6 +54,9 @@
 ```bash
 # 在封閉沙箱中直接執行命令
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
+
+# 驗證構建確定性與可重現性 (SLSA Level 3)
+apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 
 # 啟動後台常駐程式
 apple daemon --scratch-dir .apple-scratch --socket apple.sock

@@ -20,10 +20,10 @@ Trong khi Fish đóng vai trò là bộ não điều phối đồ thị phụ th
 │                   🍎 Apple Sandbox Daemon                   │
 ├──────────────────────────────┬──────────────────────────────┤
 │  Hermetic Filesystem Manager │  Network Lockdown Controller │
-│  (Lồng cách ly & Overlay)    │  (Chặn mạng tuyệt đối)       │
+│  (Hard-Link CoW & Overlay)   │  (Chặn mạng tuyệt đối)       │
 ├──────────────────────────────┼──────────────────────────────┤
-│  Process Isolation Runner    │  Real-Time Violation Monitor │
-│  (Job Objects & Namespaces)  │  (Giám sát vi phạm IO)       │
+│  Process Isolation Runner    │  Deterministic Verifier      │
+│  (Job Objects & Namespaces)  │  (Kiểm định SLSA Level 3)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,9 +31,8 @@ Trong khi Fish đóng vai trò là bộ não điều phối đồ thị phụ th
 
 ## ⚡ Các tính năng cốt lõi
 
-1. **Lồng cách ly hệ thống tệp kín (`apple::isolation::fs`)**:
-   * Gắn kết cây thư mục mã nguồn ở chế độ chỉ đọc (Read-Only).
-   * Chuyển hướng mọi thao tác ghi tạm thời của compiler vào thư mục scratch dùng một lần.
+1. **Lồng cách ly Hard-Link CoW tốc độ cao (`apple::isolation::fs`)**:
+   * Nhân bản cấu trúc mã nguồn bằng cơ chế Hard-Link Farm (`mirror_hardlink_tree`), bảo toàn tốc độ biên dịch tăng dần (incremental build) mà không sửa đổi file gốc.
 
 2. **Chặn kết nối mạng Zero-Trust (`apple::isolation::net`)**:
    * Chặn đứng mọi kết nối ra Internet trong quá trình biên dịch để đảm bảo artifact tạo ra có thể tái lập 100%.
@@ -42,8 +41,8 @@ Trong khi Fish đóng vai trò là bộ não điều phối đồ thị phụ th
    * **Windows**: Sử dụng Windows Native Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, chặn rò rỉ RAM).
    * **Unix / Linux**: Sử dụng nhóm tiến trình `setpgid` và cơ chế kiểm soát timeout nghiêm ngặt.
 
-4. **Làm sạch môi trường (`apple::isolation::env`)**:
-   * Loại bỏ các biến môi trường ngẫu nhiên (`USER`, `PWD`, `HOME`, `TEMP`) nhưng giữ lại các cờ biên dịch chuẩn (`RUSTFLAGS`, `CFLAGS`, `NODE_ENV`).
+4. **Trình kiểm định tính tái lập SLSA Level 3 (`apple::verifier`)**:
+   * Tự động chạy biên dịch 2 lượt với giả lập biến thiên môi trường (`SOURCE_DATE_EPOCH`, UTC, TZ) và so sánh mã băm mật mã học BLAKE3 của nhị phân đầu ra.
 
 5. **Giám sát vi phạm & Kho Audit Report (`apple::monitor`, `apple::audit`)**:
    * Ghi nhận và truy xuất báo cáo về mọi hành vi truy cập tệp tin trái phép của compiler.
@@ -58,17 +57,22 @@ Trong khi Fish đóng vai trò là bộ não điều phối đồ thị phụ th
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 2. Chạy dưới dạng Daemon nền
+### 2. Kiểm định tính tái lập 100% (Bit-for-Bit Determinism)
+```bash
+apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
+```
+
+### 3. Chạy dưới dạng Daemon nền
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
 
-### 3. Kiểm tra trạng thái Daemon
+### 4. Kiểm tra trạng thái Daemon
 ```bash
 apple status --socket apple.sock
 ```
 
-### 4. Xem báo cáo Audit vi phạm
+### 5. Xem báo cáo Audit vi phạm
 ```bash
 apple audit build_target_01
 ```

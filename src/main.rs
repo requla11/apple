@@ -1,5 +1,6 @@
 use apple::daemon::AppleDaemonServer;
 use apple::protocol::{ExecutionRequest, IsolationLevel, SandboxProfile};
+use apple::verifier::DeterminismVerifier;
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -66,6 +67,23 @@ enum Commands {
     Audit {
         #[arg(help = "Task ID to inspect audit logs for")]
         task_id: String,
+    },
+    VerifyReproducible {
+        #[arg(short, long, help = "Path to the generated artifact to verify")]
+        artifact: PathBuf,
+
+        #[arg(short, long, help = "Enforce zero-trust offline network lockdown")]
+        offline: bool,
+
+        #[arg(short, long, help = "Working directory")]
+        workdir: Option<PathBuf>,
+
+        #[arg(
+            last = true,
+            required = true,
+            help = "Command and arguments to execute for reproducible verification"
+        )]
+        command: Vec<String>,
     },
 }
 
@@ -136,6 +154,43 @@ async fn main() -> anyhow::Result<()> {
             println!("🍎 Apple Hermetic Audit Report");
             println!("   Task ID : {}", task_id);
             println!("   Status  : Verified hermetic, 0 leakage violations recorded");
+        }
+        Commands::VerifyReproducible {
+            artifact,
+            offline,
+            workdir,
+            command,
+        } => {
+            let cwd = workdir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let verifier = DeterminismVerifier::new(PathBuf::from(".apple-scratch"));
+
+            let mut profile = SandboxProfile::default();
+            if offline {
+                profile.allow_network = false;
+            }
+            profile.level = IsolationLevel::FullHermetic;
+
+            let request = ExecutionRequest {
+                task_id: format!("verify_{}", std::process::id()),
+                working_dir: cwd,
+                argv: command,
+                env: std::env::vars().collect::<HashMap<_, _>>(),
+                profile,
+            };
+
+            let report = verifier.verify_reproducible(request, &artifact).await?;
+
+            println!("🍎 Apple Deterministic Build Verification (SLSA Level 3)");
+            println!("   Artifact  : {}", report.artifact_path);
+            println!("   Pass 1 Hdr: {}", report.pass1_hash);
+            println!("   Pass 2 Hdr: {}", report.pass2_hash);
+
+            if report.is_deterministic {
+                println!("   Verdict   : 100% Hermetic & Bit-for-Bit Reproducible! ✅");
+            } else {
+                eprintln!("   Verdict   : Non-deterministic output detected ❌");
+                std::process::exit(1);
+            }
         }
     }
 

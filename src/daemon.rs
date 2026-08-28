@@ -1,3 +1,4 @@
+use crate::audit::AuditStore;
 use crate::isolation::{
     HermeticEnvironmentSanitizer, HermeticFilesystemManager, NetworkIsolationController,
     ProcessIsolationRunner,
@@ -11,6 +12,7 @@ pub struct AppleDaemonServer {
     scratch_dir: PathBuf,
     active_sandboxes: Arc<AtomicUsize>,
     is_running: Arc<AtomicBool>,
+    audit_store: AuditStore,
 }
 
 impl AppleDaemonServer {
@@ -19,7 +21,12 @@ impl AppleDaemonServer {
             scratch_dir,
             active_sandboxes: Arc::new(AtomicUsize::new(0)),
             is_running: Arc::new(AtomicBool::new(true)),
+            audit_store: AuditStore::new(),
         }
+    }
+
+    pub fn audit_store(&self) -> &AuditStore {
+        &self.audit_store
     }
 
     pub async fn dispatch_message(&self, message: DaemonMessage) -> DaemonMessage {
@@ -44,7 +51,7 @@ impl AppleDaemonServer {
         }
     }
 
-    async fn execute_task(&self, mut request: ExecutionRequest) -> ExecutionResult {
+    pub async fn execute_task(&self, mut request: ExecutionRequest) -> ExecutionResult {
         self.active_sandboxes.fetch_add(1, Ordering::SeqCst);
         let fs_mgr = HermeticFilesystemManager::new(&self.scratch_dir);
 
@@ -67,7 +74,7 @@ impl AppleDaemonServer {
 
         self.active_sandboxes.fetch_sub(1, Ordering::SeqCst);
 
-        match exec_res {
+        let final_result = match exec_res {
             Ok(result) => result,
             Err(err) => ExecutionResult {
                 task_id: request.task_id,
@@ -79,6 +86,9 @@ impl AppleDaemonServer {
                 violations: Vec::new(),
                 hermetic_guarantee: false,
             },
-        }
+        };
+
+        self.audit_store.record_result(&final_result);
+        final_result
     }
 }

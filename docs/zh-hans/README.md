@@ -11,6 +11,22 @@
 
 在 Fish 统筹高并发依赖 DAG 与分布式缓存的同时，**Apple** 作为特权系统管理者，确保每次编译器调用都在完全密闭、零污染且 100% 可重现的环境中执行。
 
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                 🐟 Fish Build Orchestrator                  │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ IPC (Unix Domain Socket / Named Pipe)
+┌──────────────────────────────▼──────────────────────────────┐
+│                   🍎 Apple Sandbox Daemon                   │
+├──────────────────────────────┬──────────────────────────────┤
+│  Hermetic Filesystem Manager │  Network Lockdown Controller │
+│  (Readonly Jails & Overlay)  │  (Zero-Trust Offline Mirror) │
+├──────────────────────────────┼──────────────────────────────┤
+│  Process Isolation Runner    │  Real-Time Violation Monitor │
+│  (Job Objects & Namespaces)  │  (IO Auditing & Telemetry)   │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## ⚡ 核心特性
@@ -21,19 +37,32 @@
 2. **零信任网络阻断 (`apple::isolation::net`)**:
    * 编译期间全面阻断未授权外网请求，确保构建产物完全可重现。
 
-3. **环境熵清洗 (`apple::isolation::env`)**:
+3. **OS 原生内核级进程隔离 (`apple::isolation::process`)**:
+   * **Windows**: 深度集成 Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，强限制内存)。
+   * **Unix / Linux**: 采用进程组隔离（`setpgid`）与严格超时管理。
+
+4. **环境熵清洗 (`apple::isolation::env`)**:
    * 剔除易变环境变量，保留核心构建参数。
 
-4. **实时越界监控 (`apple::monitor`)**:
-   * 监控进程 I/O，即时捕捉未经声明的异常文件访问。
+5. **实时越界监控与审计报告 (`apple::monitor`, `apple::audit`)**:
+   * 监控进程 I/O，即时捕捉未经声明的异常文件访问并生成审计报告。
 
 ---
 
-## 🚀 快速开始
+## 🚀 命令行参考 (CLI)
 
 ```bash
-# 启动 Apple 守护进程
-apple --scratch-dir .apple-scratch --socket apple.sock
+# 在封闭沙箱中直接运行命令
+apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
+
+# 启动后台守护进程
+apple daemon --scratch-dir .apple-scratch --socket apple.sock
+
+# 检查守护进程状态
+apple status --socket apple.sock
+
+# 查看审计报告
+apple audit build_target_01
 ```
 
 ---

@@ -1,6 +1,6 @@
 use apple::isolation::{HermeticEnvironmentSanitizer, NetworkIsolationController};
-use apple::protocol::{IsolationLevel, SandboxProfile};
-use apple::{AppleClient, AppleDaemonServer, SandboxMonitor};
+use apple::protocol::{ExecutionResult, IsolationLevel, SandboxProfile};
+use apple::{AppleClient, AppleDaemonServer, AuditStore, SandboxMonitor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -53,6 +53,30 @@ fn test_monitor_detects_unauthorized_path_access() {
     let v2 = monitor.inspect_access(Path::new("/etc/shadow"), false);
     assert!(v2.is_some());
     assert_eq!(monitor.violation_count(), 1);
+}
+
+#[test]
+fn test_audit_store_records_and_retrieves_report() {
+    let store = AuditStore::new();
+    let result = ExecutionResult {
+        task_id: "build_target_42".to_string(),
+        exit_code: 0,
+        stdout: b"ok".to_vec(),
+        stderr: Vec::new(),
+        execution_duration_ms: 120,
+        peak_memory_bytes: 1024 * 1024 * 64,
+        violations: Vec::new(),
+        hermetic_guarantee: true,
+    };
+
+    store.record_result(&result);
+    let report = store.get_report("build_target_42");
+    assert!(report.is_some());
+    let rep = report.unwrap();
+    assert_eq!(rep.exit_code, 0);
+    assert_eq!(rep.duration_ms, 120);
+    assert!(rep.hermetic_guarantee);
+    assert_eq!(rep.total_violations, 0);
 }
 
 #[tokio::test]

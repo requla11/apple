@@ -1,3 +1,5 @@
+
+> ⚠️ **Translation notice:** The English README was rewritten with accurate, up-to-date documentation. This translation is based on an older version and may contain outdated claims. Please refer to the [English README](../../README.md) until this translation is refreshed.
 # 🍎 Apple: カーネルレベル完全密閉サンドボックス＆プロセス分離デーモン
 
 > 🌐 **言語ナビゲーション:**

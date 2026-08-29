@@ -1,4 +1,4 @@
-# 🍎 Apple: Kernel-Level Hermetic Sandbox & Process Isolation Daemon
+# 🍎 Apple: Hermetic Sandbox & Process Isolation Daemon for Fish
 
 > 🌐 **Language Navigation / 多语言文档 / 多語言文檔 / ドキュメント言語:**
 > [English](README.md) | [Tiếng Việt](docs/vi/README.md) | [日本語](docs/ja/README.md) | [简体中文](docs/zh-hans/README.md) | [繁體中文](docs/zh-hant/README.md)
@@ -7,83 +7,116 @@
 
 ## 🎯 Overview
 
-**Apple** is a dedicated kernel-level hermetic sandbox and zero-trust process isolation daemon engineered to complement the [Fish](https://github.com/requla11/fish) polyglot build orchestration engine.
+**Apple** is a process-level hermetic sandbox and isolation daemon that
+complements the [Fish](https://github.com/requla11/fish) build orchestration
+engine. While Fish coordinates dependency graphs, caching, and parallel
+scheduling, Apple wraps individual build commands in a controlled environment:
+a scrubbed variable set, a scratch working copy, toolchain-level offline
+flags, and an enforced timeout (with a Windows Job Object on Windows).
 
-While Fish coordinates high-throughput dependency DAGs, incremental caching, and parallel task scheduling, **Apple** acts as the elevated system hypervisor, ensuring that every compiler invocation executes inside an airtight, leak-free, reproducible environment.
+Apple ships as both a Rust library (consumed by `fish-sandbox`) and a
+standalone CLI/daemon.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                 🐟 Fish Build Orchestrator                  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ IPC (Unix Domain Socket / Named Pipe)
-┌──────────────────────────────▼──────────────────────────────┐
-│                   🍎 Apple Sandbox Daemon                   │
-├──────────────────────────────┬──────────────────────────────┤
-│  Hermetic Filesystem Manager │  Network Lockdown Controller │
-│  (Hard-Link CoW & Overlay)   │  (Zero-Trust Offline Mirror) │
-├──────────────────────────────┼──────────────────────────────┤
-│  Process Isolation Runner    │  Deterministic Verifier      │
-│  (Job Objects & Namespaces)  │  (SLSA Level 3 Attestation)  │
-└─────────────────────────────────────────────────────────────┘
-```
+> **Note on the name:** "Apple" is a companion project name for Fish 🐟.
+> This project is an independent open-source tool and is **not affiliated
+> with, endorsed, or sponsored by Apple Inc.**
 
----
+## ⚡ What Apple actually does
 
-## ⚡ Core Capabilities
+1. **Hard-link mirror sandbox (`apple::isolation::fs`)**:
+   * Mirrors source trees into a per-task jail directory using hard links
+     (with an automatic copy fallback across filesystems).
+   * Compiler writes land in the jail, leaving the original tree untouched.
 
-1. **Hard-Link CoW Incremental Sandbox (`apple::isolation::fs`)**:
-   * Mounts source trees via high-speed Hard-Link Farms (`mirror_hardlink_tree`) on Windows and Unix.
-   * Redirects compiler writes into disposable scratch directories, preserving incremental build speed without mutating original source files.
+2. **Environment scrubbing (`apple::isolation::env`)**:
+   * Strips all environment variables except an allow-list (plus `FISH_*` and
+     `APPLE_*` prefixes) and points `TMPDIR`/`TEMP`/`TMP` at the jail.
 
-2. **Zero-Trust Network Lockdown (`apple::isolation::net`)**:
-   * Blackholes unauthorized outbound network requests during compilation tasks to guarantee 100% reproducible build artifacts.
+3. **Best-effort network discouragement (`apple::isolation::net`)**:
+   * Injects blackhole proxy variables and offline flags honored by Cargo,
+     Go, pip, and npm (`CARGO_NET_OFFLINE`, `GOPROXY=off`, ...).
+   * **This is not a firewall.** A process that ignores proxy variables still
+     has network access. Kernel-level enforcement (network namespaces) is not
+     implemented.
 
-3. **OS-Native Kernel Process Isolation (`apple::isolation::process`)**:
-   * **Windows**: Implements Native Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, strict RAM ceilings).
-   * **Unix / Linux**: Enforces process group leader isolation (`setpgid`) and timeout enforcement.
+4. **Process isolation (`apple::isolation::process`)**:
+   * **Windows**: Job Object with `KILL_ON_JOB_CLOSE` and an optional memory
+     ceiling; `CREATE_NO_WINDOW` for child processes.
+   * **Unix**: `setpgid` process-group isolation and a hard timeout.
+   * This is user-space process isolation — no namespaces, seccomp, or
+     AppContainer.
 
-4. **SLSA Level 3 Deterministic Verifier (`apple::verifier`)**:
-   * Executes dual-pass isolated builds with temporal perturbation (`SOURCE_DATE_EPOCH`, UTC timezone, clean env) and verifies bit-for-bit output determinism using BLAKE3 cryptographic hashing.
+5. **Dual-pass determinism check (`apple::verifier`)**:
+   * Runs the same build twice in fresh jails; the second pass runs with
+     perturbed locale/time variables (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`).
+   * Compares BLAKE3 hashes of the artifact. This is a self-declared
+     reproducibility check, **not** a SLSA attestation.
 
-5. **Real-Time Violation Monitor & Audit Store (`apple::monitor`, `apple::audit`)**:
-   * Inspects process I/O and immediately flags any compiler attempt to read un-declared headers or leaked build secrets.
+6. **Audit records (`apple::audit`)**:
+   * The daemon persists execution results (exit code, duration, violations)
+     as JSON under `<scratch>/audit/<task_id>.json` for inspection by the CLI.
 
----
+7. **Violation checking (`apple::monitor`)**:
+   * A path-prefix policy checker available as a library. It is not wired to
+     live syscall/process I/O interception.
 
 ## 🚀 CLI Reference
 
-### 1. One-Shot Sandboxed Execution
+### 1. Start the IPC daemon
 ```bash
-# Run any command inside a hermetic offline jail with memory and timeout limits
+apple daemon --scratch-dir .apple-scratch --socket apple.sock
+```
+Serves newline-delimited JSON (`DaemonMessage`) over a Unix socket or a
+Windows named pipe until a `Shutdown` message or Ctrl+C.
+
+### 2. One-shot sandboxed execution
+```bash
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 2. Verify Bit-for-Bit Deterministic Reproducibility
+### 3. Verify deterministic output
 ```bash
-# Verify build reproducibility under perturbed sandbox environments
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
+Requires the build to produce the artifact **inside** the jail so both
+passes can be hashed.
 
-### 3. Background Daemon Mode
-```bash
-# Start the IPC daemon for Fish build orchestration
-apple daemon --scratch-dir .apple-scratch --socket apple.sock
-```
-
-### 4. Check Daemon Status
+### 4. Check daemon status
 ```bash
 apple status --socket apple.sock
 ```
+Pings the real daemon over IPC and reports reachability, version, and the
+active sandbox count.
 
-### 5. Inspect Hermetic Audit Logs
+### 5. Inspect audit records
 ```bash
-apple audit build_target_01
+apple audit <task_id>
+apple telemetry <task_id>
+```
+Reads JSON records previously written by the daemon. If no record exists,
+the CLI reports that — it never prints placeholder numbers.
+
+### 6. Auto-detect a language profile
+```bash
+apple profile-detect --dir .
 ```
 
----
+## 🧪 Known Limitations
+
+* No kernel-level sandboxing (no namespaces/seccomp on Linux, no AppContainer
+  or AppLocker on Windows).
+* Network lockdown is advisory (env-var based), not enforced.
+* The violation monitor is a library-only path checker, not a runtime I/O
+  interceptor.
+* Peak memory and CPU-time sampling are not implemented; telemetry reports
+  what the runner actually knows (exit code, duration).
+* The determinism verifier requires the artifact to be produced inside the
+  jail; it cannot hash artifacts written outside the sandbox.
+* IPC is single-host only (Unix socket / named pipe).
 
 ## 📄 License & Disclaimer
 
 Licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-> **Disclaimer:** This project is an independent open-source tool and is not affiliated with, endorsed, or sponsored by Apple Inc.
+> **Disclaimer:** This project is an independent open-source tool and is not
+> affiliated with, endorsed, or sponsored by Apple Inc.

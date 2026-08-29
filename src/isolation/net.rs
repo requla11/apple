@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 
+/// Best-effort, toolchain-level network discouragement: injects blackhole
+/// proxy variables and offline flags honored by Cargo, Go, pip and npm.
+/// This is *not* a firewall — a process that ignores proxy environment
+/// variables still has network access. Kernel-level network namespaces are
+/// required for hard enforcement and are not implemented here.
 pub struct NetworkIsolationController;
 
 impl NetworkIsolationController {

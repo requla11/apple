@@ -1,3 +1,5 @@
+
+> ⚠️ **Translation notice:** The English README was rewritten with accurate, up-to-date documentation. This translation is based on an older version and may contain outdated claims. Please refer to the [English README](../../README.md) until this translation is refreshed.
 # 🍎 Apple: 内核级全封闭沙箱与进程隔离守护进程
 
 > 🌐 **语言导航 / 語言導航:**

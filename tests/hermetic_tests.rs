@@ -27,13 +27,15 @@ fn test_environment_sanitizer_scrubs_polluting_keys() {
     raw.insert("FISH_BUILD_TAG".to_string(), "v1.0".to_string());
 
     let whitelist = vec!["PATH".to_string()];
-    let clean = HermeticEnvironmentSanitizer::sanitize(&raw, &whitelist);
+    let tmp = PathBuf::from("/sandbox/jail_demo/tmp");
+    let clean = HermeticEnvironmentSanitizer::sanitize(&raw, &whitelist, Some(&tmp));
 
     assert!(clean.contains_key("PATH"));
     assert!(clean.contains_key("FISH_BUILD_TAG"));
     assert!(!clean.contains_key("USER"));
     assert!(!clean.contains_key("SECRET_KEY"));
-    assert_eq!(clean.get("TEMP").unwrap(), ".apple-scratch/tmp");
+    assert_eq!(clean.get("TEMP").unwrap(), "/sandbox/jail_demo/tmp");
+    assert_eq!(clean.get("TMPDIR").unwrap(), "/sandbox/jail_demo/tmp");
 }
 
 #[test]

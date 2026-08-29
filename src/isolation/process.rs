@@ -3,6 +3,11 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
+/// Runs a child process with the isolation primitives available to an
+/// unprivileged user-space process: an scrubbed environment, an optional
+/// Windows Job Object (kill-on-close + memory ceiling), a Unix process
+/// group (`setpgid`) and a hard timeout. This is process-level isolation,
+/// not a kernel sandbox (no namespaces/seccomp/AppContainer).
 pub struct ProcessIsolationRunner;
 
 impl ProcessIsolationRunner {
@@ -30,6 +35,9 @@ impl ProcessIsolationRunner {
         #[cfg(windows)]
         {
             if request.profile.level != crate::protocol::IsolationLevel::Off {
+                // CREATE_NO_WINDOW: avoid flashing a console window for each
+                // sandboxed child process. Real process-level containment
+                // comes from the Job Object assigned below.
                 cmd.creation_flags(0x08000000);
             }
         }
@@ -73,7 +81,9 @@ impl ProcessIsolationRunner {
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: 0,
                 violations: Vec::new(),
-                hermetic_guarantee: true,
+                // Only claim a hermetic guarantee when an isolation level
+                // above `Off` was actually enforced.
+                hermetic_guarantee: request.profile.level != crate::protocol::IsolationLevel::Off,
             }),
             Ok(Err(err)) => Err(anyhow::anyhow!("process execution failed: {err}")),
             Err(_) => Ok(ExecutionResult {
@@ -144,6 +154,12 @@ impl ProcessIsolationRunner {
 struct WindowsJobGuard {
     handle: windows_sys::Win32::Foundation::HANDLE,
 }
+
+// The raw HANDLE is owned exclusively by this guard and only closed in
+// `Drop`, so moving it between threads (as required when holding it across
+// an `.await` point) is safe.
+#[cfg(windows)]
+unsafe impl Send for WindowsJobGuard {}
 
 #[cfg(windows)]
 impl Drop for WindowsJobGuard {

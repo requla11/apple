@@ -1,3 +1,5 @@
+
+> ⚠️ **Translation notice:** The English README was rewritten with accurate, up-to-date documentation. This translation is based on an older version and may contain outdated claims. Please refer to the [English README](../../README.md) until this translation is refreshed.
 # 🍎 Apple: 核心級全封閉沙箱與處理程序隔離常駐程式
 
 > 🌐 **語言導航 / 语言导航:**

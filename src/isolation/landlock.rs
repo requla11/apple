@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LandlockAccessFlags {
@@ -56,6 +56,10 @@ impl LandlockPathRule {
             },
         }
     }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 pub struct LandlockController;
@@ -64,7 +68,7 @@ impl LandlockController {
     pub fn is_supported() -> bool {
         #[cfg(target_os = "linux")]
         {
-            Path::new("/sys/kernel/security/landlock").exists()
+            std::path::Path::new("/sys/kernel/security/landlock").exists()
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -93,6 +97,7 @@ mod tests {
     #[test]
     fn test_landlock_path_rule_constructors() {
         let r1 = LandlockPathRule::readonly("/usr/lib");
+        assert_eq!(r1.path(), std::path::Path::new("/usr/lib"));
         assert!(r1.access.read);
         assert!(!r1.access.write);
         assert!(!r1.access.exec);

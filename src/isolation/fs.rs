@@ -120,7 +120,9 @@ mod tests {
             },
         ];
 
-        let jail = manager.prepare_workspace_jail("test_task_1", &rules).unwrap();
+        let jail = manager
+            .prepare_workspace_jail("test_task_1", &rules)
+            .unwrap();
         assert!(jail.exists());
         assert!(jail.join("input.txt").exists());
         assert!(jail.join("output").exists());
@@ -134,4 +136,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
-

@@ -1,73 +1,85 @@
-# 🍎 Apple: Trình Daemon Hộp Cát Hermetic & Cô Lập Tiến Trình Cho Fish
+# 🍎 Apple: Sandbox Hermetic & Daemon Cách Ly Tiến Trình Cho Fish
 
-> 🌐 **Language Navigation / 多语言文档 / 多語言文檔 / ドキュメント言語:**
+> 🌐 **Điều Hướng Ngôn Ngữ / Language Navigation:**
 > [English](../../README.md) | [Tiếng Việt](README.md) | [日本語](../ja/README.md) | [简体中文](../zh-hans/README.md) | [繁體中文](../zh-hant/README.md)
 >
-> 🗺️ **[Xem Toàn Bộ Lộ Trình Kỹ Thuật (ROADMAP)](ROADMAP.md)**
-
-
----
-
-## 🎯 Giới thiệu tổng quan
-
-**Apple** là hệ thống daemon cô lập tiến trình và hộp cát khép kín (hermetic sandbox) hiệu năng cao, bổ trợ toàn diện cho công cụ điều phối build [Fish](https://github.com/requla11/fish). Trong khi Fish điều phối đồ thị phụ thuộc DAG, bộ nhớ cache và lập lịch song song, Apple bọc từng câu lệnh build trong một môi trường được kiểm soát tuyệt đối: thư mục jail liên kết cứng (hard-link), bộ biến môi trường tinh giản, chính sách ngắt mạng 11+ ngôn ngữ, cô lập cấp độ nhân hệ điều hành (Linux Namespaces, cgroups v2, seccomp-bpf, Windows Job Objects / Restricted Tokens / AppContainer, và macOS Seatbelt SBPL), cùng bộ đón chặn vi phạm I/O thời gian thực.
-
-Apple được phân phối dưới dạng thư viện Rust (được `fish-sandbox` / `fish-executor` sử dụng) và công cụ dòng lệnh/daemon độc lập.
-
-> **Lưu ý về tên gọi:** "Apple" là tên dự án đồng hành cùng Fish 🐟. Dự án này là công cụ mã nguồn mở độc lập và **không liên kết, bảo trợ hoặc tài trợ bởi Apple Inc.**
+> 🗺️ **[Xem Lộ Trình Kỹ Thuật Chi Tiết (Roadmap)](ROADMAP.md)**
 
 ---
 
-## ⚡ Các tính năng cô lập cốt lõi
+## 🎯 Tổng Quan
 
-1. **🐧 Cô lập tầng sâu Kernel Linux (`apple::isolation::linux`)**:
-   * **Linux Namespaces**: Cô lập container không đặc quyền (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
-   * **Bộ điều khiển cgroups v2**: Kiểm soát chính xác hạn ngạch phần cứng tại `/sys/fs/cgroup/apple_sandbox/{task_id}` cho RAM (`memory.max`), quota CPU (`cpu.max`), và core affinity (`cpuset.cpus`).
-   * **Bộ lọc seccomp-bpf**: Lọc chính sách gọi hệ thống syscall, chặn các syscall nguy hiểm (`ptrace`, bind raw socket khi offline, thao tác nạp kernel module).
+**Apple** là engine sandbox hermetic hiệu năng cao và daemon cách ly tiến trình được thiết kế đồng hành cùng hệ thống điều phối build [Fish](https://github.com/requla11/fish) cũng như chạy độc lập cho các chuỗi công cụ enterprise. Trong khi Fish điều phối đồ thị phụ thuộc DAG và bộ nhớ cache phân tán, Apple bọc các lệnh biên dịch trong một môi trường được kiểm soát tuyệt đối: cách ly tầng sâu kernel, lưu trữ Copy-on-Write (CoW) zero-copy, streaming IPC thời gian thực, hủy tác vụ tức thì và bảo mật chuỗi cung ứng chuẩn SLSA v1.0 / SPDX / CycloneDX.
 
-2. **🪟 Bảo mật Windows & Job Objects (`apple::isolation::windows` & `apple::isolation::process`)**:
-   * **Job Objects**: Giới hạn phần cứng (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) và thống kê chính xác lượng RAM đỉnh qua `QueryInformationJobObject`.
-   * **Restricted Tokens & Low Integrity**: Tước bỏ quyền quản trị viên và hạ mức toàn vẹn của token xuống Low Integrity (`SECURITY_MANDATORY_LOW_RID`).
-   * **Hồ sơ AppContainer**: Hỗ trợ môi trường hộp cát Windows AppContainer.
-
-3. **🍎 Cấu hình macOS Seatbelt (`apple::isolation::macos`)**:
-   * **SBPL (Sandbox Profile Language)**: Tạo hồ sơ hộp cát đóng băng quyền truy cập hệ thống tệp và thực thi tiến trình (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
-   * Bọc lệnh thực thi thông qua `sandbox-exec` cho các trình biên dịch như `clang`, `swiftc`, và `rustc`.
-
-4. **🔍 Đón chặn I/O thời gian thực & rò rỉ bí mật (`apple::isolation::interceptor` & `apple::monitor`)**:
-   * Kiểm tra các đường dẫn truy cập theo thời gian thực.
-   * Cảnh báo ngay lập tức nếu phát hiện đọc trộm các file bí mật (`.env`, `id_rsa`, `.aws/credentials`, `/etc/shadow`, `/root`).
-   * Xác minh các header/file đầu vào có khớp với khai báo DAG trong mount rules hay không.
-
-5. **Hộp cát liên kết cứng Hard-link (`apple::isolation::fs`)**:
-   * Nhân bản cây mã nguồn vào thư mục jail của tác vụ bằng hard-link với cơ chế tự động fallback sao chép khi khác filesystem.
-
-6. **Chính sách ngắt mạng 11+ ngôn ngữ (`apple::isolation::net`)**:
-   * Tiêm biến môi trường offline cho Cargo, Go, pip, npm/yarn/pnpm, Maven, Gradle, .NET, Swift, Dart.
-
-7. **Kiểm định tính tái lập Dual-Pass (`apple::verifier`)**:
-   * Chạy build 2 lần trong jail mới với biến thời gian/locale bị nhiễu (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`) và đối chiếu hash BLAKE3.
+> **Ghi chú về tên gọi:** "Apple" là tên dự án đồng hành cùng Fish 🐟. Dự án này là một công cụ mã nguồn mở độc lập và **không liên kết, không được chứng thực hoặc tài trợ bởi Apple Inc.**
 
 ---
 
-## 🚀 Hướng dẫn CLI
+## ⚡ Các Khả Năng Kiến Trúc Cốt Lõi
 
-### 1. Khởi động daemon IPC
+### 1. 🐧 Cách Ly Tầng Sâu Linux Kernel (`apple::isolation::linux`)
+- **Linux Namespaces**: Cách ly container không cần quyền root (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
+- **Bộ điều khiển cgroups v2**: Giới hạn hạn ngạch phần cứng tại `/sys/fs/cgroup/apple_sandbox/{task_id}` cho RAM (`memory.max`), CPU quota (`cpu.max`), và gán lõi CPU (`cpuset.cpus`).
+- **Bộ lọc seccomp-bpf**: Lọc và chặn các lệnh gọi hệ thống nguy hiểm (`ptrace`, mở socket mạng khi offline, nạp kernel module).
+- **Landlock LSM**: Thiết lập các quy tắc giới hạn đường dẫn trực tiếp từ nhân Linux cho quyền đọc/ghi chi tiết.
+
+### 2. 🪟 Bảo Mật Windows & Job Objects (`apple::isolation::windows`)
+- **Job Objects**: Giới hạn phần cứng (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) và hạch toán đỉnh RAM chính xác qua `QueryInformationJobObject`.
+- **Restricted Tokens & Low Integrity**: Tước bỏ quyền quản trị viên và hạ cấp độ tin cậy xuống `SECURITY_MANDATORY_LOW_RID`.
+- **Hồ sơ AppContainer**: Hỗ trợ sandbox gốc qua Windows AppContainer.
+
+### 3. 🍏 Hồ Sơ macOS Seatbelt (`apple::isolation::macos`)
+- **Sandbox Profile Language (SBPL)**: Tự động sinh hồ sơ sandbox hermetic (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
+- Bọc trực tiếp bằng `sandbox-exec` cho các trình biên dịch gốc (`clang`, `swiftc`, `rustc`).
+
+### 4. ⚡ Jail Lưu Trữ Zero-Copy (`apple::isolation::cow` & `fs`)
+- **Copy-on-Write Block Cloning**: Tăng tốc phần cứng qua APFS `clonefile(2)`, Linux `FICLONE` / `Btrfs` reflink, và Windows FSCTL block cloning kết hợp hardlink.
+- **Đồng Bộ Artifact Sai Khác (Differential Sync)**: Tự động so sánh snapshot metadata để trích xuất các artifact mới sinh ra hoặc bị chỉnh sửa.
+
+### 5. 🌊 Streaming IPC & Hủy Tác Vụ Thời Gian Thực (`apple::protocol` & `daemon`)
+- **Stream Dạng Chunks**: Đọc và truyền luồng stdout/stderr (buffer 4KB) bất đồng bộ không chặn qua Unix Domain Sockets / Windows Named Pipes.
+- **Hủy Tiến Trình Nhánh**: Hủy tức thì toàn bộ nhóm tiến trình bằng Unix `SIGKILL` process groups và đóng Windows Job Object.
+
+### 6. 🔐 Bảo Mật Chuỗi Cung Ứng & SLSA v1.0 (`apple::provenance`, `attestation`, `sbom`)
+- **SLSA v1.0 Provenance**: Xuất metadata chứng minh nguồn gốc theo chuẩn in-toto Statement v1 với mã băm BLAKE3.
+- **Ký Số Mật Mã (Attestation)**: Ký và xác thực phong bì chứng thực bằng mã MAC BLAKE3 có khóa bảo mật.
+- **Tạo SBOM Tự Động**: Xuất danh mục thành phần phần mềm chuẩn quốc tế **SPDX 2.3** và **CycloneDX 1.5**.
+
+---
+
+## 🚀 Hướng Dẫn Sử Dụng CLI
+
+### 1. Khởi chạy Daemon IPC
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
 
-### 2. Thực thi lệnh trong hộp cát
+### 2. Thực thi Lệnh trong Sandbox Đơn Lẻ
 ```bash
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 3. Kiểm định tính tái tạo của artifact
+### 3. Kiểm Tra Tính Tái Lập (Reproducible Build)
 ```bash
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
 
-### 4. Kiểm tra nhật ký kiểm toán
+### 4. Xuất Báo Cáo Nguồn Gốc SLSA v1.0
 ```bash
-apple audit
+apple provenance --task-id task_123 --artifacts target/release/my_bin --output provenance.json
+```
+
+### 5. Xuất Danh Mục SBOM (SPDX 2.3 / CycloneDX 1.5)
+```bash
+apple sbom --format spdx --task-id task_123 --artifacts target/release/my_bin --output sbom.spdx.json
+apple sbom --format cyclonedx --task-id task_123 --artifacts target/release/my_bin --output sbom.cdx.json
+```
+
+### 6. Ký Số và Xác Thực Attestation
+```bash
+# Ký số
+apple attest --provenance provenance.json --secret-key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Xác thực
+apple attest --provenance provenance.json --secret-key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef --verify --envelope envelope.json
 ```

@@ -5,69 +5,81 @@
 >
 > 🗺️ **[View Full Technical Roadmap](ROADMAP.md)**
 
-
 ---
 
 ## 🎯 Overview
 
-**Apple** is a high-performance, process-level hermetic sandbox and isolation daemon that complements the [Fish](https://github.com/requla11/fish) build orchestration engine. While Fish coordinates dependency graphs, caching, and parallel scheduling, Apple wraps individual build commands in a strictly controlled environment: hardlinked workspace jails, scrubbed environment sets, multi-toolchain network offline policies, OS-level containment (Linux Namespaces, cgroups v2, seccomp-bpf, Windows Job Objects / Restricted Tokens, and macOS Seatbelt SBPL), and real-time live I/O violation interception.
-
-Apple ships as both a Rust library (consumed by `fish-sandbox` / `fish-executor`) and a standalone CLI/daemon.
+**Apple** is an ultra-fast, hermetic sandbox engine and isolation daemon built for the [Fish](https://github.com/requla11/fish) build orchestration system and standalone enterprise toolchains. While Fish coordinates DAG dependencies and distributed caching, Apple wraps compiler and toolchain commands in a strictly contained environment: kernel-level sandboxing, Copy-on-Write (CoW) zero-copy storage jails, real-time chunked streaming IPC, cryptographic process cancellation, and SLSA v1.0 / SPDX / CycloneDX supply chain security.
 
 > **Note on the name:** "Apple" is a companion project name for Fish 🐟. This project is an independent open-source tool and is **not affiliated with, endorsed, or sponsored by Apple Inc.**
 
 ---
 
-## ⚡ Core Isolation Capabilities
+## ⚡ Key Architectural Capabilities
 
-1. **🐧 Deep Linux Kernel Isolation (`apple::isolation::linux`)**:
-   * **Linux Namespaces**: Unprivileged container isolation (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
-   * **cgroups v2 Controller**: Hardware resource quotas under `/sys/fs/cgroup/apple_sandbox/{task_id}` for RAM (`memory.max`), CPU quota (`cpu.max`), and core affinity (`cpuset.cpus`).
-   * **seccomp-bpf Filter**: System call policy filtering blocking unauthorized syscalls (`ptrace`, raw socket bindings when offline, kernel module operations).
+### 1. 🐧 Deep Kernel Isolation (`apple::isolation::linux`)
+- **Linux Namespaces**: Unprivileged container isolation (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
+- **cgroups v2 Controller**: Hardware resource quotas under `/sys/fs/cgroup/apple_sandbox/{task_id}` for RAM (`memory.max`), CPU quota (`cpu.max`), and core affinity (`cpuset.cpus`).
+- **seccomp-bpf Filter**: System call policy filtering blocking unauthorized syscalls (`ptrace`, raw socket bindings when offline, kernel module operations).
+- **Landlock LSM**: Linux kernel-enforced path restriction rules granting fine-grained read/write access.
 
-2. **🪟 Windows Security & Job Objects (`apple::isolation::windows` & `apple::isolation::process`)**:
-   * **Job Objects**: Hardware limits (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) and exact peak memory accounting via `QueryInformationJobObject`.
-   * **Restricted Tokens & Low Integrity**: Strips administrator privileges and drops token integrity to Low Integrity (`SECURITY_MANDATORY_LOW_RID`).
-   * **AppContainer Profiles**: Native Windows AppContainer sandboxing support.
+### 2. 🪟 Windows Security & Job Objects (`apple::isolation::windows`)
+- **Job Objects**: Hardware limits (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) and exact peak memory accounting via `QueryInformationJobObject`.
+- **Restricted Tokens & Low Integrity**: Drops administrator privileges and lowers integrity level to `SECURITY_MANDATORY_LOW_RID`.
+- **AppContainer Profiles**: Native Windows AppContainer sandboxing support.
 
-3. **🍎 macOS Seatbelt Profiles (`apple::isolation::macos`)**:
-   * **SBPL (Sandbox Profile Language)**: Generates hermetic sandbox profiles freezing filesystem access and process executions (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
-   * Seamless wrapping with `sandbox-exec` for compilers like `clang`, `swiftc`, and `rustc`.
+### 3. 🍏 macOS Seatbelt Profiles (`apple::isolation::macos`)
+- **Sandbox Profile Language (SBPL)**: Dynamically generates hermetic profiles (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
+- Direct wrapping with `sandbox-exec` for native toolchains (`clang`, `swiftc`, `rustc`).
 
-4. **🔍 Real-Time Live I/O & Secret Interceptor (`apple::isolation::interceptor` & `apple::monitor`)**:
-   * Inspects accessed paths in real-time.
-   * Immediately flags probes against protected secret patterns (`.env`, `id_rsa`, `.aws/credentials`, `/etc/shadow`, `/root`).
-   * Verifies that compiler inputs match declared DAG input mount rules.
+### 4. ⚡ Zero-Copy Storage Jails (`apple::isolation::cow` & `fs`)
+- **Copy-on-Write Block Cloning**: Hardware-accelerated APFS `clonefile(2)`, Linux `FICLONE` / `Btrfs` reflink, and Windows FSCTL block cloning with hardlink fallback.
+- **Differential Artifact Sync**: Automatic metadata snapshot comparisons extracting modified and newly produced build artifacts.
 
-5. **Hard-link Mirror Sandbox (`apple::isolation::fs`)**:
-   * Mirrors source trees into per-task jail folders with hardlinks and automatic cross-filesystem fallback.
+### 5. 🌊 Real-Time Streaming IPC & Cancellation (`apple::protocol` & `daemon`)
+- **Streaming Chunks**: Non-blocking async stdout/stderr chunk streaming (4KB buffers) over Unix Domain Sockets / Windows Named Pipes.
+- **Process Group Termination**: Atomic cancellation via Unix `SIGKILL` process groups and Windows Job Object closing.
 
-6. **Toolchain-Level Offline Policy (`apple::isolation::net`)**:
-   * Injects strict offline environment flags across 11+ languages (Cargo, Go, pip, npm/yarn/pnpm, Maven, Gradle, .NET, Swift, Dart).
-
-7. **Dual-Pass Determinism Verifier (`apple::verifier`)**:
-   * Executes dual-pass reproducible builds with perturbed timestamps and locales (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`) and BLAKE3 hash auditing.
+### 6. 🔐 Enterprise Supply Chain Security & SLSA v1.0 (`apple::provenance`, `attestation`, `sbom`)
+- **SLSA v1.0 Provenance**: Generates in-toto Statement v1 metadata with cryptographic BLAKE3 input/output digests.
+- **Cryptographic Attestation**: Signs and verifies attestation envelopes with keyed BLAKE3 MACs.
+- **Automated SBOM**: Exports software bill of materials in standard **SPDX 2.3** and **CycloneDX 1.5** formats.
 
 ---
 
-## 🚀 CLI Reference
+## 🚀 CLI Usage
 
-### 1. Start the IPC daemon
+### 1. Start the IPC Daemon
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
 
-### 2. One-shot sandboxed execution
+### 2. One-Shot Sandboxed Execution
 ```bash
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 3. Verify deterministic output
+### 3. Dual-Pass Reproducible Build Verification
 ```bash
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
 
-### 4. Inspect audit logs
+### 4. Generate SLSA v1.0 Provenance
 ```bash
-apple audit
+apple provenance --task-id task_123 --artifacts target/release/my_bin --output provenance.json
+```
+
+### 5. Export SBOM (SPDX 2.3 / CycloneDX 1.5)
+```bash
+apple sbom --format spdx --task-id task_123 --artifacts target/release/my_bin --output sbom.spdx.json
+apple sbom --format cyclonedx --task-id task_123 --artifacts target/release/my_bin --output sbom.cdx.json
+```
+
+### 6. Sign and Verify Attestation Envelopes
+```bash
+# Sign
+apple attest --provenance provenance.json --secret-key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Verify
+apple attest --provenance provenance.json --secret-key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef --verify --envelope envelope.json
 ```

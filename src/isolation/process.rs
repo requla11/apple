@@ -100,8 +100,8 @@ impl ProcessIsolationRunner {
             None
         };
 
-        let mut stdout_pipe = child.stdout.take();
-        let mut stderr_pipe = child.stderr.take();
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
 
         let task_id = request.task_id.clone();
         let chunk_tx_out = chunk_tx.clone();
@@ -154,7 +154,7 @@ impl ProcessIsolationRunner {
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(3600));
 
-        let child_pid = child.id();
+        let _child_pid = child.id();
         let mut was_cancelled = false;
         let mut was_timeout = false;
 
@@ -166,7 +166,7 @@ impl ProcessIsolationRunner {
                 was_timeout = true;
                 let _ = child.start_kill();
                 #[cfg(unix)]
-                if let Some(pid) = child_pid {
+                if let Some(pid) = _child_pid {
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
                 }
                 Err(anyhow::anyhow!("timeout"))
@@ -181,7 +181,7 @@ impl ProcessIsolationRunner {
                 was_cancelled = true;
                 let _ = child.start_kill();
                 #[cfg(unix)]
-                if let Some(pid) = child_pid {
+                if let Some(pid) = _child_pid {
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
                 }
                 Err(anyhow::anyhow!("cancelled"))

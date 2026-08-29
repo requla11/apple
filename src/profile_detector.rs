@@ -50,12 +50,12 @@ impl ProfileDetector {
                 ]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
                 profile.mount_rules.push(MountRule {
                     source: root_dir.join("target"),
-                    target: "workspace/target".to_string(),
+                    target: PathBuf::from("workspace/target"),
                     kind: MountKind::ReadWrite,
                 });
             }
@@ -71,7 +71,7 @@ impl ProfileDetector {
                 ]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
             }
@@ -86,7 +86,7 @@ impl ProfileDetector {
                 ]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
             }
@@ -99,7 +99,7 @@ impl ProfileDetector {
                 ]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
             }
@@ -111,7 +111,7 @@ impl ProfileDetector {
                     .extend(vec!["PYTHONPATH".to_string(), "PIP_NO_INDEX".to_string()]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
             }
@@ -120,7 +120,7 @@ impl ProfileDetector {
                 profile.allow_network = false;
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
-                    target: "workspace".to_string(),
+                    target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
                 });
             }

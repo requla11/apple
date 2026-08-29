@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(env.get("ZERO_AR_DATE"), Some(&"1".to_string()));
         assert_eq!(env.get("PYTHONHASHSEED"), Some(&"0".to_string()));
         assert_eq!(env.get("TZ"), Some(&"UTC".to_string()));
-        assert!(env.get("HOME").is_some());
+        assert!(env.contains_key("HOME"));
         assert!(
             env.get("RUSTFLAGS")
                 .unwrap()

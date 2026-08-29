@@ -105,7 +105,7 @@ mod tests {
         std::fs::write(&file2, b"b").unwrap();
 
         let planner = VirtualProjectionPlanner::default();
-        let plan = planner.plan_projection_paths(temp.path(), &[file1.clone()]);
+        let plan = planner.plan_projection_paths(temp.path(), std::slice::from_ref(&file1));
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0], file1);
     }

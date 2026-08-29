@@ -5,22 +5,22 @@ pub struct NetworkIsolationController;
 impl NetworkIsolationController {
     pub fn apply_network_policy(env: &mut HashMap<String, String>, allow_network: bool) {
         if !allow_network {
-            env.insert("http_proxy".to_string(), "http://127.0.0.1:9".to_string());
-            env.insert("https_proxy".to_string(), "http://127.0.0.1:9".to_string());
-            env.insert("all_proxy".to_string(), "socks5://127.0.0.1:9".to_string());
-            env.insert("ALL_PROXY".to_string(), "socks5://127.0.0.1:9".to_string());
-            env.insert("HTTP_PROXY".to_string(), "http://127.0.0.1:9".to_string());
-            env.insert("HTTPS_PROXY".to_string(), "http://127.0.0.1:9".to_string());
-            env.insert("FTP_PROXY".to_string(), "http://127.0.0.1:9".to_string());
+            env.insert("http_proxy".to_string(), "http://127.0.0.1:0".to_string());
+            env.insert("https_proxy".to_string(), "http://127.0.0.1:0".to_string());
+            env.insert("all_proxy".to_string(), "socks5://127.0.0.1:0".to_string());
+            env.insert("ALL_PROXY".to_string(), "socks5://127.0.0.1:0".to_string());
+            env.insert("HTTP_PROXY".to_string(), "http://127.0.0.1:0".to_string());
+            env.insert("HTTPS_PROXY".to_string(), "http://127.0.0.1:0".to_string());
+            env.insert("FTP_PROXY".to_string(), "http://127.0.0.1:0".to_string());
             env.insert("NO_PROXY".to_string(), "".to_string());
 
             env.insert(
                 "GIT_CONFIG_PARAMETERS".to_string(),
-                "'http.proxy=http://127.0.0.1:9'".to_string(),
+                "'http.proxy=http://127.0.0.1:0'".to_string(),
             );
             env.insert(
                 "CURL_OPT_PROXY".to_string(),
-                "http://127.0.0.1:9".to_string(),
+                "http://127.0.0.1:0".to_string(),
             );
 
             env.insert("CARGO_NET_OFFLINE".to_string(), "true".to_string());
@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(env.get("DOTNET_RESTORE_OFFLINE"), Some(&"true".to_string()));
         assert_eq!(
             env.get("http_proxy"),
-            Some(&"http://127.0.0.1:9".to_string())
+            Some(&"http://127.0.0.1:0".to_string())
         );
         assert_eq!(env.get("GITHUB_TOKEN"), None);
     }

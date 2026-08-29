@@ -122,6 +122,7 @@ impl ProfileDetector {
             allow_network: false,
             whitelisted_env,
             mount_rules,
+            ..Default::default()
         }
     }
 }

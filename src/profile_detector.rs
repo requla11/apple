@@ -35,96 +35,93 @@ impl ProfileDetector {
 
     pub fn auto_generate_profile(root_dir: &Path) -> SandboxProfile {
         let lang = Self::detect_language(root_dir);
-        let mut profile = SandboxProfile::default();
-        profile.level = IsolationLevel::FullHermetic;
 
-        match lang {
-            LanguageKind::Rust => {
-                profile.name = "auto-rust-hermetic".to_string();
-                profile.allow_network = false;
-                profile.whitelisted_env.extend([
+        let (name, whitelisted_env, mount_rules) = match lang {
+            LanguageKind::Rust => (
+                "auto-rust-hermetic".to_string(),
+                vec![
                     "RUSTFLAGS".to_string(),
                     "RUSTC".to_string(),
                     "CARGO_HOME".to_string(),
                     "CARGO_TARGET_DIR".to_string(),
-                ]);
-                profile.mount_rules.push(MountRule {
-                    source: root_dir.to_path_buf(),
-                    target: PathBuf::from("workspace"),
-                    kind: MountKind::ReadOnly,
-                });
-                profile.mount_rules.push(MountRule {
-                    source: root_dir.join("target"),
-                    target: PathBuf::from("workspace/target"),
-                    kind: MountKind::ReadWrite,
-                });
-            }
-            LanguageKind::Cpp => {
-                profile.name = "auto-cpp-hermetic".to_string();
-                profile.allow_network = false;
-                profile.whitelisted_env.extend([
+                ],
+                vec![
+                    MountRule {
+                        source: root_dir.to_path_buf(),
+                        target: PathBuf::from("workspace"),
+                        kind: MountKind::ReadOnly,
+                    },
+                    MountRule {
+                        source: root_dir.join("target"),
+                        target: PathBuf::from("workspace/target"),
+                        kind: MountKind::ReadWrite,
+                    },
+                ],
+            ),
+            LanguageKind::Cpp => (
+                "auto-cpp-hermetic".to_string(),
+                vec![
                     "CC".to_string(),
                     "CXX".to_string(),
                     "CFLAGS".to_string(),
                     "CXXFLAGS".to_string(),
                     "LDFLAGS".to_string(),
-                ]);
-                profile.mount_rules.push(MountRule {
+                ],
+                vec![MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
-                });
-            }
-            LanguageKind::Go => {
-                profile.name = "auto-go-hermetic".to_string();
-                profile.allow_network = false;
-                profile.whitelisted_env.extend([
+                }],
+            ),
+            LanguageKind::Go => (
+                "auto-go-hermetic".to_string(),
+                vec![
                     "GOROOT".to_string(),
                     "GOPATH".to_string(),
                     "GOPROXY".to_string(),
                     "GOCACHE".to_string(),
-                ]);
-                profile.mount_rules.push(MountRule {
+                ],
+                vec![MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
-                });
-            }
-            LanguageKind::NodeJs => {
-                profile.name = "auto-node-hermetic".to_string();
-                profile.allow_network = false;
-                profile
-                    .whitelisted_env
-                    .extend(["NODE_ENV".to_string(), "NPM_CONFIG_OFFLINE".to_string()]);
-                profile.mount_rules.push(MountRule {
+                }],
+            ),
+            LanguageKind::NodeJs => (
+                "auto-node-hermetic".to_string(),
+                vec!["NODE_ENV".to_string(), "NPM_CONFIG_OFFLINE".to_string()],
+                vec![MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
-                });
-            }
-            LanguageKind::Python => {
-                profile.name = "auto-python-hermetic".to_string();
-                profile.allow_network = false;
-                profile
-                    .whitelisted_env
-                    .extend(["PYTHONPATH".to_string(), "PIP_NO_INDEX".to_string()]);
-                profile.mount_rules.push(MountRule {
+                }],
+            ),
+            LanguageKind::Python => (
+                "auto-python-hermetic".to_string(),
+                vec!["PYTHONPATH".to_string(), "PIP_NO_INDEX".to_string()],
+                vec![MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
-                });
-            }
-            LanguageKind::Generic => {
-                profile.name = "auto-generic-hermetic".to_string();
-                profile.allow_network = false;
-                profile.mount_rules.push(MountRule {
+                }],
+            ),
+            LanguageKind::Generic => (
+                "auto-generic-hermetic".to_string(),
+                vec![],
+                vec![MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
                     kind: MountKind::ReadOnly,
-                });
-            }
-        }
+                }],
+            ),
+        };
 
-        profile
+        SandboxProfile {
+            name,
+            level: IsolationLevel::FullHermetic,
+            allow_network: false,
+            whitelisted_env,
+            mount_rules,
+        }
     }
 }

@@ -223,13 +223,14 @@ impl Drop for WindowsJobGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{ExecutionProfile, IsolationLevel};
+    use crate::protocol::{IsolationLevel, SandboxProfile};
     use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_process_isolation_runner_echo() {
         let req = ExecutionRequest {
             task_id: "test_echo".to_string(),
+            working_dir: std::env::temp_dir(),
             argv: vec![
                 if cfg!(windows) {
                     "cmd".to_string()
@@ -244,15 +245,17 @@ mod tests {
                 "echo hello_apple_sandbox".to_string(),
             ],
             env: HashMap::new(),
-            working_dir: std::env::temp_dir(),
-            profile: ExecutionProfile {
-                level: IsolationLevel::Basic,
-                network_access: false,
+            profile: SandboxProfile {
+                name: "test".to_string(),
+                level: IsolationLevel::ProcessOnly,
+                allow_network: false,
                 memory_limit_mb: Some(512),
+                cpu_affinity_mask: None,
                 timeout_seconds: Some(10),
                 mount_rules: Vec::new(),
-                env_whitelist: Vec::new(),
+                whitelisted_env: Vec::new(),
             },
+            keep_jail: true,
         };
 
         let res = ProcessIsolationRunner::run_sandboxed(req).await.unwrap();

@@ -6,8 +6,8 @@ use crate::isolation::{
 use crate::protocol::{DaemonMessage, ExecutionRequest, ExecutionResult};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub struct AppleDaemonServer {
@@ -15,9 +15,7 @@ pub struct AppleDaemonServer {
     active_sandboxes: Arc<AtomicUsize>,
     is_running: Arc<AtomicBool>,
     audit_store: AuditStore,
-    cancel_handles: Arc<
-        parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>,
-    >,
+    cancel_handles: Arc<Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl AppleDaemonServer {
@@ -27,7 +25,7 @@ impl AppleDaemonServer {
             active_sandboxes: Arc::new(AtomicUsize::new(0)),
             is_running: Arc::new(AtomicBool::new(true)),
             audit_store: AuditStore::new(),
-            cancel_handles: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+            cancel_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -40,13 +38,13 @@ impl AppleDaemonServer {
     }
 
     pub fn cancel_task(&self, task_id: &str) -> bool {
-        let mut handles = self.cancel_handles.lock();
-        if let Some(tx) = handles.remove(task_id) {
-            let _ = tx.send(());
-            true
-        } else {
-            false
+        if let Ok(mut handles) = self.cancel_handles.lock() {
+            if let Some(tx) = handles.remove(task_id) {
+                let _ = tx.send(());
+                return true;
+            }
         }
+        false
     }
 
     pub async fn serve(self: Arc<Self>, endpoint: &str) -> Result<()> {
@@ -175,8 +173,7 @@ impl AppleDaemonServer {
         self.active_sandboxes.fetch_add(1, Ordering::SeqCst);
 
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
-        {
-            let mut handles = self.cancel_handles.lock();
+        if let Ok(mut handles) = self.cancel_handles.lock() {
             handles.insert(request.task_id.clone(), cancel_tx);
         }
 
@@ -214,8 +211,7 @@ impl AppleDaemonServer {
         )
         .await;
 
-        {
-            let mut handles = self.cancel_handles.lock();
+        if let Ok(mut handles) = self.cancel_handles.lock() {
             handles.remove(&request.task_id);
         }
 

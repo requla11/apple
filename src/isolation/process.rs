@@ -154,24 +154,19 @@ impl ProcessIsolationRunner {
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(3600));
 
-        let wait_fut = child.wait();
-        tokio::pin!(wait_fut);
-
-        let timeout_fut = tokio::time::sleep(timeout_duration);
-        tokio::pin!(timeout_fut);
-
+        let child_pid = child.id();
         let mut was_cancelled = false;
         let mut was_timeout = false;
 
         let status_res = tokio::select! {
-            res = &mut wait_fut => {
+            res = child.wait() => {
                 res.map_err(|e| anyhow::anyhow!("child wait failed: {e}"))
             }
-            _ = &mut timeout_fut => {
+            _ = tokio::time::sleep(timeout_duration) => {
                 was_timeout = true;
                 let _ = child.start_kill();
                 #[cfg(unix)]
-                if let Some(pid) = child.id() {
+                if let Some(pid) = child_pid {
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
                 }
                 Err(anyhow::anyhow!("timeout"))
@@ -186,7 +181,7 @@ impl ProcessIsolationRunner {
                 was_cancelled = true;
                 let _ = child.start_kill();
                 #[cfg(unix)]
-                if let Some(pid) = child.id() {
+                if let Some(pid) = child_pid {
                     unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
                 }
                 Err(anyhow::anyhow!("cancelled"))

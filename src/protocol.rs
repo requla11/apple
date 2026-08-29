@@ -57,6 +57,29 @@ impl Default for SandboxProfile {
                 "GOOS".to_string(),
                 "GOARCH".to_string(),
                 "NODE_ENV".to_string(),
+                // Toolchain location variables — without these, rustup/cargo
+                // cannot locate their homes inside the jail.
+                "HOME".to_string(),
+                "USERPROFILE".to_string(),
+                "CARGO_HOME".to_string(),
+                "RUSTUP_HOME".to_string(),
+                // Windows system roots and MSVC discovery (cargo/rustc
+                // locate link.exe via vswhere under %ProgramFiles(x86)%).
+                "SystemRoot".to_string(),
+                "SystemDrive".to_string(),
+                "windir".to_string(),
+                "COMSPEC".to_string(),
+                "ProgramFiles".to_string(),
+                "ProgramFiles(x86)".to_string(),
+                "ProgramW6432".to_string(),
+                "APPDATA".to_string(),
+                "LOCALAPPDATA".to_string(),
+                "INCLUDE".to_string(),
+                "LIB".to_string(),
+                "LIBPATH".to_string(),
+                "VSINSTALLDIR".to_string(),
+                "VCINSTALLDIR".to_string(),
+                "DevEnvDir".to_string(),
             ],
         }
     }
@@ -69,6 +92,12 @@ pub struct ExecutionRequest {
     pub argv: Vec<String>,
     pub env: HashMap<String, String>,
     pub profile: SandboxProfile,
+    /// When `true`, the daemon keeps the per-task jail directory after the
+    /// command finishes instead of deleting it. One-shot CLI runs set this
+    /// so newly produced artifacts survive; the daemon's Execute path
+    /// defaults to `false` for automatic cleanup.
+    #[serde(default)]
+    pub keep_jail: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

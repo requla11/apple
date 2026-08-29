@@ -142,6 +142,7 @@ async fn test_determinism_verifier_instantiation() {
                 argv: vec![],
                 env: HashMap::new(),
                 profile: SandboxProfile::default(),
+                keep_jail: false,
             },
             Path::new("non_existent"),
         )

@@ -194,7 +194,9 @@ impl AppleDaemonServer {
         }
 
         let exec_res = ProcessIsolationRunner::run_sandboxed(request.clone()).await;
-        let _ = fs_mgr.cleanup_jail(&request.task_id);
+        if !request.keep_jail {
+            let _ = fs_mgr.cleanup_jail(&request.task_id);
+        }
 
         self.active_sandboxes.fetch_sub(1, Ordering::SeqCst);
 

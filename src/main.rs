@@ -1,7 +1,9 @@
 use apple::audit::audit_record_path;
 use apple::daemon::AppleDaemonServer;
 use apple::profile_detector::ProfileDetector;
-use apple::protocol::{ExecutionRequest, ExecutionResult, IsolationLevel, SandboxProfile};
+use apple::protocol::{
+    ExecutionRequest, ExecutionResult, IsolationLevel, MountKind, MountRule, SandboxProfile,
+};
 use apple::verifier::DeterminismVerifier;
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
@@ -125,12 +127,26 @@ async fn main() -> anyhow::Result<()> {
             command,
         } => {
             let cwd = workdir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let server = AppleDaemonServer::new(PathBuf::from(DEFAULT_SCRATCH));
+            // The scratch dir must be absolute: relative paths would leak
+            // into TMP/TEMP and break tools that resolve them against their
+            // own working directory (e.g. link.exe temp files).
+            let scratch = std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(DEFAULT_SCRATCH);
+            let server = AppleDaemonServer::new(scratch);
 
-            let mut profile = SandboxProfile::default();
-            if offline {
-                profile.allow_network = false;
-            }
+            // Mirror the whole working directory into the jail via hard
+            // links so the sandboxed command sees its inputs (and writes
+            // through to the original tree for pre-existing files).
+            let mut profile = SandboxProfile {
+                mount_rules: vec![MountRule {
+                    source: cwd.clone(),
+                    target: PathBuf::from("."),
+                    kind: MountKind::ReadOnly,
+                }],
+                ..SandboxProfile::default()
+            };
+            profile.allow_network = !offline;
             if let Some(mem) = memory_limit_mb {
                 profile.memory_limit_mb = Some(mem);
             }
@@ -139,12 +155,16 @@ async fn main() -> anyhow::Result<()> {
             }
             profile.level = IsolationLevel::FullHermetic;
 
+            let task_id = format!("cli_exec_{}", std::process::id());
             let request = ExecutionRequest {
-                task_id: format!("cli_exec_{}", std::process::id()),
+                task_id: task_id.clone(),
                 working_dir: cwd,
                 argv: command,
                 env: std::env::vars().collect::<HashMap<_, _>>(),
                 profile,
+                // Keep the jail so newly produced artifacts survive after
+                // the command exits.
+                keep_jail: true,
             };
 
             let res = server.execute_task(request).await;
@@ -154,6 +174,9 @@ async fn main() -> anyhow::Result<()> {
             if !res.stderr.is_empty() {
                 eprint!("{}", String::from_utf8_lossy(&res.stderr));
             }
+            println!(
+                "🍎 sandbox jail kept at {DEFAULT_SCRATCH}/jail_{task_id}"
+            );
             std::process::exit(res.exit_code);
         }
         Commands::Status { socket } => {
@@ -243,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
                 argv: command,
                 env: std::env::vars().collect::<HashMap<_, _>>(),
                 profile,
+                keep_jail: false,
             };
 
             let report = verifier.verify_reproducible(request, &artifact).await?;

@@ -57,6 +57,11 @@ impl HermeticFilesystemManager {
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             let entry_path = entry.path();
+            // Never mirror the sandbox's own scratch directory — it contains
+            // the jails themselves and would recurse / grow unboundedly.
+            if entry_path.is_dir() && entry.file_name() == ".apple-scratch" {
+                continue;
+            }
             let dest_path = dst.join(entry.file_name());
             if entry_path.is_dir() {
                 Self::mirror_hardlink_tree(&entry_path, &dest_path)?;

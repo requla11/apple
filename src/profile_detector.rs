@@ -42,7 +42,7 @@ impl ProfileDetector {
             LanguageKind::Rust => {
                 profile.name = "auto-rust-hermetic".to_string();
                 profile.allow_network = false;
-                profile.whitelisted_env.extend(vec![
+                profile.whitelisted_env.extend([
                     "RUSTFLAGS".to_string(),
                     "RUSTC".to_string(),
                     "CARGO_HOME".to_string(),
@@ -62,7 +62,7 @@ impl ProfileDetector {
             LanguageKind::Cpp => {
                 profile.name = "auto-cpp-hermetic".to_string();
                 profile.allow_network = false;
-                profile.whitelisted_env.extend(vec![
+                profile.whitelisted_env.extend([
                     "CC".to_string(),
                     "CXX".to_string(),
                     "CFLAGS".to_string(),
@@ -78,7 +78,7 @@ impl ProfileDetector {
             LanguageKind::Go => {
                 profile.name = "auto-go-hermetic".to_string();
                 profile.allow_network = false;
-                profile.whitelisted_env.extend(vec![
+                profile.whitelisted_env.extend([
                     "GOROOT".to_string(),
                     "GOPATH".to_string(),
                     "GOPROXY".to_string(),
@@ -93,10 +93,9 @@ impl ProfileDetector {
             LanguageKind::NodeJs => {
                 profile.name = "auto-node-hermetic".to_string();
                 profile.allow_network = false;
-                profile.whitelisted_env.extend(vec![
-                    "NODE_ENV".to_string(),
-                    "NPM_CONFIG_OFFLINE".to_string(),
-                ]);
+                profile
+                    .whitelisted_env
+                    .extend(["NODE_ENV".to_string(), "NPM_CONFIG_OFFLINE".to_string()]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),
@@ -108,7 +107,7 @@ impl ProfileDetector {
                 profile.allow_network = false;
                 profile
                     .whitelisted_env
-                    .extend(vec!["PYTHONPATH".to_string(), "PIP_NO_INDEX".to_string()]);
+                    .extend(["PYTHONPATH".to_string(), "PIP_NO_INDEX".to_string()]);
                 profile.mount_rules.push(MountRule {
                     source: root_dir.to_path_buf(),
                     target: PathBuf::from("workspace"),

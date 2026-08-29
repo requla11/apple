@@ -41,6 +41,10 @@ pub struct SandboxProfile {
     pub appcontainer: bool,
     #[serde(default)]
     pub declared_inputs: Vec<PathBuf>,
+    #[serde(default)]
+    pub max_processes: Option<u32>,
+    #[serde(default)]
+    pub numa_node: Option<u32>,
 }
 
 impl Default for SandboxProfile {
@@ -86,6 +90,8 @@ impl Default for SandboxProfile {
             seccomp_filter: true,
             appcontainer: false,
             declared_inputs: Vec::new(),
+            max_processes: Some(512),
+            numa_node: None,
         }
     }
 }

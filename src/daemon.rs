@@ -1,7 +1,8 @@
 use crate::audit::{AuditStore, audit_record_path};
 use crate::isolation::{
-    HermeticEnvironmentSanitizer, HermeticFilesystemManager, HermeticToolchainSanitizer,
-    NetworkIsolationController, ProcessIsolationRunner,
+    AmbientDaemonScrubber, HermeticEnvironmentSanitizer, HermeticFilesystemManager,
+    HermeticToolchainSanitizer, NetworkIsolationController, NumaAffinityController,
+    ProcessIsolationRunner,
 };
 use crate::protocol::{DaemonMessage, ExecutionRequest, ExecutionResult};
 
@@ -201,10 +202,14 @@ impl AppleDaemonServer {
             &mut sanitized_env,
             request.profile.allow_network,
         );
+        AmbientDaemonScrubber::scrub_ambient_env(&mut sanitized_env);
         HermeticToolchainSanitizer::inject_deterministic_flags(
             &mut sanitized_env,
             jail_dir.as_deref(),
         );
+        if let Some(node) = request.profile.numa_node {
+            NumaAffinityController::assign_numa_node(node, &mut sanitized_env);
+        }
         request.env = sanitized_env;
 
         if let Some(jail) = &jail_dir {

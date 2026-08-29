@@ -50,15 +50,13 @@ impl HermeticFilesystemManager {
             return Ok(());
         }
         if src.is_file() {
-            return Self::link_or_copy_file(src, dst);
+            return crate::isolation::cow::CowCloner::clone_file(src, dst);
         }
 
         std::fs::create_dir_all(dst)?;
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             let entry_path = entry.path();
-            // Never mirror the sandbox's own scratch directory — it contains
-            // the jails themselves and would recurse / grow unboundedly.
             if entry_path.is_dir() && entry.file_name() == ".apple-scratch" {
                 continue;
             }
@@ -66,20 +64,8 @@ impl HermeticFilesystemManager {
             if entry_path.is_dir() {
                 Self::mirror_hardlink_tree(&entry_path, &dest_path)?;
             } else {
-                Self::link_or_copy_file(&entry_path, &dest_path)?;
+                crate::isolation::cow::CowCloner::clone_file(&entry_path, &dest_path)?;
             }
-        }
-        Ok(())
-    }
-
-    /// Hard-link `src` to `dst`, falling back to a copy when hard links are
-    /// unavailable (e.g. across filesystems).
-    fn link_or_copy_file(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        if std::fs::hard_link(src, dst).is_err() {
-            std::fs::copy(src, dst)?;
         }
         Ok(())
     }
@@ -88,7 +74,7 @@ impl HermeticFilesystemManager {
         if src.is_dir() {
             Self::mirror_hardlink_tree(src, dst)
         } else if src.is_file() {
-            Self::link_or_copy_file(src, dst)
+            crate::isolation::cow::CowCloner::clone_file(src, dst)
         } else {
             Ok(())
         }

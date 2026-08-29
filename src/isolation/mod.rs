@@ -1,15 +1,21 @@
+pub mod cow;
+pub mod differential;
 pub mod env;
 pub mod fs;
 pub mod interceptor;
+pub mod landlock;
 pub mod linux;
 pub mod macos;
 pub mod net;
 pub mod process;
 pub mod windows;
 
+pub use cow::CowCloner;
+pub use differential::DifferentialArtifactSynchronizer;
 pub use env::HermeticEnvironmentSanitizer;
 pub use fs::HermeticFilesystemManager;
 pub use interceptor::LiveIoInterceptor;
+pub use landlock::{LandlockAccessFlags, LandlockController, LandlockPathRule};
 pub use linux::{CgroupV2Controller, LinuxNamespaceConfig, SeccompProfileBuilder};
 pub use macos::SeatbeltProfileBuilder;
 pub use net::NetworkIsolationController;

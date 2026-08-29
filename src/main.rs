@@ -174,9 +174,7 @@ async fn main() -> anyhow::Result<()> {
             if !res.stderr.is_empty() {
                 eprint!("{}", String::from_utf8_lossy(&res.stderr));
             }
-            println!(
-                "🍎 sandbox jail kept at {DEFAULT_SCRATCH}/jail_{task_id}"
-            );
+            println!("🍎 sandbox jail kept at {DEFAULT_SCRATCH}/jail_{task_id}");
             std::process::exit(res.exit_code);
         }
         Commands::Status { socket } => {

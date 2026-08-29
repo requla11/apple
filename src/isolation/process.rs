@@ -3,11 +3,6 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
-/// Runs a child process with the isolation primitives available to an
-/// unprivileged user-space process: an scrubbed environment, an optional
-/// Windows Job Object (kill-on-close + memory ceiling), a Unix process
-/// group (`setpgid`) and a hard timeout. This is process-level isolation,
-/// not a kernel sandbox (no namespaces/seccomp/AppContainer).
 pub struct ProcessIsolationRunner;
 
 impl ProcessIsolationRunner {
@@ -35,9 +30,6 @@ impl ProcessIsolationRunner {
         #[cfg(windows)]
         {
             if request.profile.level != crate::protocol::IsolationLevel::Off {
-                // CREATE_NO_WINDOW: avoid flashing a console window for each
-                // sandboxed child process. Real process-level containment
-                // comes from the Job Object assigned below.
                 cmd.creation_flags(0x08000000);
             }
         }
@@ -72,6 +64,24 @@ impl ProcessIsolationRunner {
         let output_res = tokio::time::timeout(timeout_duration, child.wait_with_output()).await;
         let elapsed = start_time.elapsed().as_millis() as u64;
 
+        let peak_mem = {
+            #[cfg(windows)]
+            {
+                _job_guard
+                    .as_ref()
+                    .map(|g| g.get_peak_memory_bytes())
+                    .unwrap_or(0)
+            }
+            #[cfg(unix)]
+            {
+                Self::get_rusage_peak_memory()
+            }
+            #[cfg(not(any(windows, unix)))]
+            {
+                0
+            }
+        };
+
         match output_res {
             Ok(Ok(output)) => Ok(ExecutionResult {
                 task_id: request.task_id,
@@ -79,10 +89,8 @@ impl ProcessIsolationRunner {
                 stdout: output.stdout,
                 stderr: output.stderr,
                 execution_duration_ms: elapsed,
-                peak_memory_bytes: 0,
+                peak_memory_bytes: peak_mem,
                 violations: Vec::new(),
-                // Only claim a hermetic guarantee when an isolation level
-                // above `Off` was actually enforced.
                 hermetic_guarantee: request.profile.level != crate::protocol::IsolationLevel::Off,
             }),
             Ok(Err(err)) => Err(anyhow::anyhow!("process execution failed: {err}")),
@@ -92,10 +100,29 @@ impl ProcessIsolationRunner {
                 stdout: Vec::new(),
                 stderr: b"process timed out under hermetic sandbox policy".to_vec(),
                 execution_duration_ms: elapsed,
-                peak_memory_bytes: 0,
+                peak_memory_bytes: peak_mem,
                 violations: Vec::new(),
                 hermetic_guarantee: false,
             }),
+        }
+    }
+
+    #[cfg(unix)]
+    fn get_rusage_peak_memory() -> u64 {
+        unsafe {
+            let mut usage: libc::rusage = std::mem::zeroed();
+            if libc::getrusage(libc::RUSAGE_CHILDREN, &mut usage) == 0 {
+                #[cfg(target_os = "linux")]
+                {
+                    (usage.ru_maxrss as u64) * 1024
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    usage.ru_maxrss as u64
+                }
+            } else {
+                0
+            }
         }
     }
 
@@ -155,9 +182,32 @@ struct WindowsJobGuard {
     handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
-// The raw HANDLE is owned exclusively by this guard and only closed in
-// `Drop`, so moving it between threads (as required when holding it across
-// an `.await` point) is safe.
+#[cfg(windows)]
+impl WindowsJobGuard {
+    pub fn get_peak_memory_bytes(&self) -> u64 {
+        use windows_sys::Win32::System::JobObjects::{
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            QueryInformationJobObject,
+        };
+        unsafe {
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            let mut return_length: u32 = 0;
+            let res = QueryInformationJobObject(
+                self.handle,
+                JobObjectExtendedLimitInformation,
+                &mut info as *mut _ as *mut _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                &mut return_length,
+            );
+            if res != 0 {
+                info.PeakJobMemoryUsed as u64
+            } else {
+                0
+            }
+        }
+    }
+}
+
 #[cfg(windows)]
 unsafe impl Send for WindowsJobGuard {}
 
@@ -167,5 +217,48 @@ impl Drop for WindowsJobGuard {
         unsafe {
             windows_sys::Win32::Foundation::CloseHandle(self.handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{ExecutionProfile, IsolationLevel};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn test_process_isolation_runner_echo() {
+        let req = ExecutionRequest {
+            task_id: "test_echo".to_string(),
+            argv: vec![
+                if cfg!(windows) {
+                    "cmd".to_string()
+                } else {
+                    "sh".to_string()
+                },
+                if cfg!(windows) {
+                    "/C".to_string()
+                } else {
+                    "-c".to_string()
+                },
+                "echo hello_apple_sandbox".to_string(),
+            ],
+            env: HashMap::new(),
+            working_dir: std::env::temp_dir(),
+            profile: ExecutionProfile {
+                level: IsolationLevel::Basic,
+                network_access: false,
+                memory_limit_mb: Some(512),
+                timeout_seconds: Some(10),
+                mount_rules: Vec::new(),
+                env_whitelist: Vec::new(),
+            },
+        };
+
+        let res = ProcessIsolationRunner::run_sandboxed(req).await.unwrap();
+        assert_eq!(res.exit_code, 0);
+        let stdout_str = String::from_utf8_lossy(&res.stdout);
+        assert!(stdout_str.contains("hello_apple_sandbox"));
+        assert!(res.hermetic_guarantee);
     }
 }

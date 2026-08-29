@@ -97,19 +97,21 @@ impl SlsaProvenanceGenerator {
     ) -> Result<SlsaStatement, std::io::Error> {
         let mut subject = Vec::new();
         for out in output_paths {
-            if out.exists() && out.is_file() {
-                if let Ok(rd) = ResourceDescriptor::from_file(out) {
-                    subject.push(rd);
-                }
+            if !out.is_file() {
+                continue;
+            }
+            if let Ok(rd) = ResourceDescriptor::from_file(out) {
+                subject.push(rd);
             }
         }
 
         let mut resolved_dependencies = Vec::new();
         for input in &request.profile.declared_inputs {
-            if input.exists() && input.is_file() {
-                if let Ok(rd) = ResourceDescriptor::from_file(input) {
-                    resolved_dependencies.push(rd);
-                }
+            if !input.is_file() {
+                continue;
+            }
+            if let Ok(rd) = ResourceDescriptor::from_file(input) {
+                resolved_dependencies.push(rd);
             }
         }
 
@@ -205,7 +207,9 @@ mod tests {
             hermetic_guarantee: true,
         };
 
-        let stmt = SlsaProvenanceGenerator::generate(&req, &res, &[artifact.clone()]).unwrap();
+        let stmt =
+            SlsaProvenanceGenerator::generate(&req, &res, std::slice::from_ref(&artifact)).unwrap();
+
         assert_eq!(stmt.statement_type, "https://in-toto.io/Statement/v1");
         assert_eq!(stmt.predicate_type, "https://slsa.dev/provenance/v1");
         assert_eq!(stmt.subject.len(), 1);

@@ -38,13 +38,15 @@ impl AppleDaemonServer {
     }
 
     pub fn cancel_task(&self, task_id: &str) -> bool {
-        if let Ok(mut handles) = self.cancel_handles.lock() {
-            if let Some(tx) = handles.remove(task_id) {
-                let _ = tx.send(());
-                return true;
-            }
+        let Ok(mut handles) = self.cancel_handles.lock() else {
+            return false;
+        };
+        if let Some(tx) = handles.remove(task_id) {
+            let _ = tx.send(());
+            true
+        } else {
+            false
         }
-        false
     }
 
     pub async fn serve(self: Arc<Self>, endpoint: &str) -> Result<()> {

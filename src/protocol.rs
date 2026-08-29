@@ -35,6 +35,12 @@ pub struct SandboxProfile {
     pub timeout_seconds: Option<u64>,
     pub mount_rules: Vec<MountRule>,
     pub whitelisted_env: Vec<String>,
+    #[serde(default)]
+    pub seccomp_filter: bool,
+    #[serde(default)]
+    pub appcontainer: bool,
+    #[serde(default)]
+    pub declared_inputs: Vec<PathBuf>,
 }
 
 impl Default for SandboxProfile {
@@ -57,14 +63,10 @@ impl Default for SandboxProfile {
                 "GOOS".to_string(),
                 "GOARCH".to_string(),
                 "NODE_ENV".to_string(),
-                // Toolchain location variables — without these, rustup/cargo
-                // cannot locate their homes inside the jail.
                 "HOME".to_string(),
                 "USERPROFILE".to_string(),
                 "CARGO_HOME".to_string(),
                 "RUSTUP_HOME".to_string(),
-                // Windows system roots and MSVC discovery (cargo/rustc
-                // locate link.exe via vswhere under %ProgramFiles(x86)%).
                 "SystemRoot".to_string(),
                 "SystemDrive".to_string(),
                 "windir".to_string(),
@@ -81,6 +83,9 @@ impl Default for SandboxProfile {
                 "VCINSTALLDIR".to_string(),
                 "DevEnvDir".to_string(),
             ],
+            seccomp_filter: true,
+            appcontainer: false,
+            declared_inputs: Vec::new(),
         }
     }
 }
@@ -92,10 +97,6 @@ pub struct ExecutionRequest {
     pub argv: Vec<String>,
     pub env: HashMap<String, String>,
     pub profile: SandboxProfile,
-    /// When `true`, the daemon keeps the per-task jail directory after the
-    /// command finishes instead of deleting it. One-shot CLI runs set this
-    /// so newly produced artifacts survive; the daemon's Execute path
-    /// defaults to `false` for automatic cleanup.
     #[serde(default)]
     pub keep_jail: bool,
 }

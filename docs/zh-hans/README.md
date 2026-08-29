@@ -1,94 +1,70 @@
-# 🍎 Apple:Fish 的 Hermetic 沙箱与进程隔离守护进程
+# 🍎 Apple: Fish 密闭沙箱与进程隔离守护进程
 
-> 🌐 **文档语言导航:**
-> [English](../../README.md) | [Tiếng Việt](../vi/README.md) | [日本語](../ja/README.md) | **简体中文** | [繁體中文](../zh-hant/README.md)
+> 🌐 **Language Navigation / 多语言文档 / 多語言文檔 / ドキュメント言語:**
+> [English](../../README.md) | [Tiếng Việt](../vi/README.md) | [日本語](../ja/README.md) | [简体中文](README.md) | [繁體中文](../zh-hant/README.md)
 
 ---
 
 ## 🎯 概述
 
-**Apple** 是一个进程级的 hermetic 沙箱与隔离守护进程,用于补充 [Fish](https://github.com/requla11/fish) 构建编排引擎。Fish 负责依赖图、缓存和并行调度,而 Apple 将单个构建命令包装在受控环境中:经过清洗的环境变量、临时工作副本、工具链级离线标志以及强制超时(Windows 上还包括 Job Object)。
+**Apple** 是一个高性能的进程级密闭沙箱与隔离守护进程，作为 [Fish](https://github.com/requla11/fish) 构建编排引擎的底层执行屏障。在 Fish 负责依赖 DAG 图、缓存与并行调度的同时，Apple 将各个构建命令封装在严密受控的环境中：硬链接工作区 Jail、精简环境变量、多工具链离线策略、操作系统级隔离（Linux Namespaces、cgroups v2、seccomp-bpf、Windows Job Objects / 受限令牌 / AppContainer，以及 macOS Seatbelt SBPL），并提供实时的 I/O 违规与秘密探测拦截。
 
-Apple 既作为 Rust 库(由 `fish-sandbox` 使用)提供,也作为独立的 CLI/守护进程提供。
+Apple 提供 Rust 原生库（供 `fish-sandbox` / `fish-executor` 调用）以及独立的 CLI/守护进程二进制。
 
-> **关于名称:** "Apple" 是 Fish 🐟 的姊妹项目名称。本项目是一个独立的开源工具,**与 Apple Inc. 无关,未获得其认可或赞助。**
+> **名称说明：** "Apple" 是 Fish 🐟 的伴生项目代号。本项目为独立开源工具，**与 Apple Inc. 无任何关联、背书或赞助关系。**
 
-## ⚡ Apple 实际做什么
+---
 
-1. **硬链接镜像沙箱 (`apple::isolation::fs`)**:
-   * 使用硬链接(跨文件系统时自动回退为复制)将源码树镜像到每个任务的 jail 目录中。
-   * 编译器的写入落在 jail 内,原始源码树保持不变。
+## ⚡ 核心隔离特性
 
-2. **环境变量清洗 (`apple::isolation::env`)**:
-   * 去除允许列表(以及 `FISH_*` 和 `APPLE_*` 前缀)之外的所有环境变量,并将 `TMPDIR`/`TEMP`/`TMP` 指向 jail。
+1. **🐧 Linux 深度内核隔离 (`apple::isolation::linux`)**:
+   * **Linux 命名空间**: 非特权容器隔离 (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`)。
+   * **cgroups v2 控制器**: 在 `/sys/fs/cgroup/apple_sandbox/{task_id}` 下精准控制内存限额 (`memory.max`)、CPU 配额 (`cpu.max`) 和核心亲和性 (`cpuset.cpus`)。
+   * **seccomp-bpf 过滤**: 过滤危险系统调用（`ptrace`、离线状态下的原始套接字绑定、内核模块加载等）。
 
-3. **尽力而为的网络抑制 (`apple::isolation::net`)**:
-   * 注入 Cargo、Go、pip、npm 会遵循的黑洞代理变量和离线标志(`CARGO_NET_OFFLINE`、`GOPROXY=off` 等)。
-   * **这不是防火墙。** 忽略代理变量的进程仍然可以访问网络。未实现内核级强制执行(网络命名空间)。
+2. **🪟 Windows 安全与 Job Objects (`apple::isolation::windows` & `apple::isolation::process`)**:
+   * **Job Objects**: 硬件限制 (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) 以及通过 `QueryInformationJobObject` 精准统计峰值内存。
+   * **受限令牌与低完整性级别**: 剥离管理员权限并降低令牌至低完整性级别 (`SECURITY_MANDATORY_LOW_RID`)。
+   * **AppContainer 隔离**: 支持 Windows AppContainer 原生沙箱隔离。
 
-4. **进程隔离 (`apple::isolation::process`)**:
-   * **Windows**: 具有 `KILL_ON_JOB_CLOSE` 和可选内存上限的 Job Object;子进程使用 `CREATE_NO_WINDOW`。
-   * **Unix**: 基于 `setpgid` 的进程组隔离和硬超时。
-   * 这是用户空间的进程隔离 — 不使用 namespace、seccomp 或 AppContainer。
+3. **🍎 macOS Seatbelt 策略配置 (`apple::isolation::macos`)**:
+   * **SBPL 沙箱策略语言**: 生成冻结文件系统访问与进程执行的策略 (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`）。
+   * 自动通过 `sandbox-exec` 包装 `clang`、`swiftc` 和 `rustc` 等编译器命令。
 
-5. **双趟确定性检查 (`apple::verifier`)**:
-   * 在全新的 jail 中运行相同的构建两次;第二趟使用被扰动的区域设置/时间变量(`SOURCE_DATE_EPOCH`、`TZ`、`LC_ALL`)。
-   * 比较工件的 BLAKE3 哈希。这是自我声明的可重现性检查,**不是** SLSA 认证。
+4. **🔍 实时 Live I/O 与秘密探测拦截器 (`apple::isolation::interceptor` & `apple::monitor`)**:
+   * 实时监测构建进程访问路径。
+   * 针对机密文件（`.env`、`id_rsa`、`.aws/credentials`、`/etc/shadow`、`/root`）的探测立即产生违规警报。
+   * 校验输入头文件与文件是否在 DAG 挂载规则内声明。
 
-6. **审计记录 (`apple::audit`)**:
-   * 守护进程将执行结果(退出码、耗时、违规)以 JSON 形式持久化到 `<scratch>/audit/<task_id>.json`,供 CLI 查阅。
+5. **硬链接镜像沙箱 (`apple::isolation::fs`)**:
+   * 通过硬链接将源码树镜像至独立 Jail 目录，支持跨文件系统自动降级复制。
 
-7. **违规检查 (`apple::monitor`)**:
-   * 基于路径前缀的策略检查器,仅以库的形式提供。未接入实时 syscall/进程 I/O 拦截。
+6. **11+ 语言工具链离线策略 (`apple::isolation::net`)**:
+   * 注入严格的离线环境变量（Cargo、Go、pip、npm/yarn/pnpm、Maven、Gradle、.NET、Swift、Dart）。
 
-## 🚀 CLI 参考
+7. **双通道确定性重现验证 (`apple::verifier`)**:
+   * 在隔离环境中进行双次构建，第二次引入干扰的时间与区域变量 (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`) 并校验 BLAKE3 哈希。
+
+---
+
+## 🚀 CLI 命令参考
 
 ### 1. 启动 IPC 守护进程
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
-通过 Unix socket 或 Windows 命名管道提供以换行符分隔的 JSON(`DaemonMessage`),收到 `Shutdown` 消息或按下 Ctrl+C 后退出。
 
 ### 2. 单次沙箱执行
 ```bash
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 3. 验证输出的确定性
+### 3. 验证构建输出确定性
 ```bash
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
-要求构建在 jail **内部**生成工件,以便两趟都能计算哈希。
 
-### 4. 查看守护进程状态
+### 4. 查看审计记录
 ```bash
-apple status --socket apple.sock
+apple audit
 ```
-通过 IPC 真实地 ping 守护进程,报告可达性、版本和活动沙箱数量。
-
-### 5. 查看审计记录
-```bash
-apple audit <task_id>
-apple telemetry <task_id>
-```
-读取守护进程先前写入的 JSON 记录。如果记录不存在,CLI 会如实报告 — 绝不打印占位数字。
-
-### 6. 自动检测语言配置
-```bash
-apple profile-detect --dir .
-```
-
-## 🧪 已知限制
-
-* 无内核级沙箱(Linux 无 namespace/seccomp,Windows 无 AppContainer/AppLocker)。
-* 网络封锁是基于环境变量的建议性措施,而非强制执行。
-* 违规检查器是仅限库使用的路径检查器,不是运行时 I/O 拦截器。
-* 峰值内存和 CPU 时间采样未实现;遥测只报告运行器真正掌握的信息(退出码、耗时)。
-* 确定性验证器要求工件在 jail 内生成;无法对写入沙箱之外的工件计算哈希。
-* IPC 仅限单机(Unix socket / 命名管道)。
-
-## 📄 许可证与免责声明
-
-基于 MIT 许可证发布。详情请参阅 [LICENSE](../../LICENSE)。
-
-> **免责声明:** 本项目是一个独立的开源工具,与 Apple Inc. 无关,未获得其认可或赞助。

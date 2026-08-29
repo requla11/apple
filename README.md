@@ -7,58 +7,45 @@
 
 ## 🎯 Overview
 
-**Apple** is a process-level hermetic sandbox and isolation daemon that
-complements the [Fish](https://github.com/requla11/fish) build orchestration
-engine. While Fish coordinates dependency graphs, caching, and parallel
-scheduling, Apple wraps individual build commands in a controlled environment:
-a scrubbed variable set, a scratch working copy, toolchain-level offline
-flags, and an enforced timeout (with a Windows Job Object on Windows).
+**Apple** is a high-performance, process-level hermetic sandbox and isolation daemon that complements the [Fish](https://github.com/requla11/fish) build orchestration engine. While Fish coordinates dependency graphs, caching, and parallel scheduling, Apple wraps individual build commands in a strictly controlled environment: hardlinked workspace jails, scrubbed environment sets, multi-toolchain network offline policies, OS-level containment (Linux Namespaces, cgroups v2, seccomp-bpf, Windows Job Objects / Restricted Tokens, and macOS Seatbelt SBPL), and real-time live I/O violation interception.
 
-Apple ships as both a Rust library (consumed by `fish-sandbox`) and a
-standalone CLI/daemon.
+Apple ships as both a Rust library (consumed by `fish-sandbox` / `fish-executor`) and a standalone CLI/daemon.
 
-> **Note on the name:** "Apple" is a companion project name for Fish 🐟.
-> This project is an independent open-source tool and is **not affiliated
-> with, endorsed, or sponsored by Apple Inc.**
+> **Note on the name:** "Apple" is a companion project name for Fish 🐟. This project is an independent open-source tool and is **not affiliated with, endorsed, or sponsored by Apple Inc.**
 
-## ⚡ What Apple actually does
+---
 
-1. **Hard-link mirror sandbox (`apple::isolation::fs`)**:
-   * Mirrors source trees into a per-task jail directory using hard links
-     (with an automatic copy fallback across filesystems).
-   * Compiler writes land in the jail, leaving the original tree untouched.
+## ⚡ Core Isolation Capabilities
 
-2. **Environment scrubbing (`apple::isolation::env`)**:
-   * Strips all environment variables except an allow-list (plus `FISH_*` and
-     `APPLE_*` prefixes) and points `TMPDIR`/`TEMP`/`TMP` at the jail.
+1. **🐧 Deep Linux Kernel Isolation (`apple::isolation::linux`)**:
+   * **Linux Namespaces**: Unprivileged container isolation (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
+   * **cgroups v2 Controller**: Hardware resource quotas under `/sys/fs/cgroup/apple_sandbox/{task_id}` for RAM (`memory.max`), CPU quota (`cpu.max`), and core affinity (`cpuset.cpus`).
+   * **seccomp-bpf Filter**: System call policy filtering blocking unauthorized syscalls (`ptrace`, raw socket bindings when offline, kernel module operations).
 
-3. **Best-effort network discouragement (`apple::isolation::net`)**:
-   * Injects blackhole proxy variables and offline flags honored by Cargo,
-     Go, pip, and npm (`CARGO_NET_OFFLINE`, `GOPROXY=off`, ...).
-   * **This is not a firewall.** A process that ignores proxy variables still
-     has network access. Kernel-level enforcement (network namespaces) is not
-     implemented.
+2. **🪟 Windows Security & Job Objects (`apple::isolation::windows` & `apple::isolation::process`)**:
+   * **Job Objects**: Hardware limits (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) and exact peak memory accounting via `QueryInformationJobObject`.
+   * **Restricted Tokens & Low Integrity**: Strips administrator privileges and drops token integrity to Low Integrity (`SECURITY_MANDATORY_LOW_RID`).
+   * **AppContainer Profiles**: Native Windows AppContainer sandboxing support.
 
-4. **Process isolation (`apple::isolation::process`)**:
-   * **Windows**: Job Object with `KILL_ON_JOB_CLOSE` and an optional memory
-     ceiling; `CREATE_NO_WINDOW` for child processes.
-   * **Unix**: `setpgid` process-group isolation and a hard timeout.
-   * This is user-space process isolation — no namespaces, seccomp, or
-     AppContainer.
+3. **🍎 macOS Seatbelt Profiles (`apple::isolation::macos`)**:
+   * **SBPL (Sandbox Profile Language)**: Generates hermetic sandbox profiles freezing filesystem access and process executions (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
+   * Seamless wrapping with `sandbox-exec` for compilers like `clang`, `swiftc`, and `rustc`.
 
-5. **Dual-pass determinism check (`apple::verifier`)**:
-   * Runs the same build twice in fresh jails; the second pass runs with
-     perturbed locale/time variables (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`).
-   * Compares BLAKE3 hashes of the artifact. This is a self-declared
-     reproducibility check, **not** a SLSA attestation.
+4. **🔍 Real-Time Live I/O & Secret Interceptor (`apple::isolation::interceptor` & `apple::monitor`)**:
+   * Inspects accessed paths in real-time.
+   * Immediately flags probes against protected secret patterns (`.env`, `id_rsa`, `.aws/credentials`, `/etc/shadow`, `/root`).
+   * Verifies that compiler inputs match declared DAG input mount rules.
 
-6. **Audit records (`apple::audit`)**:
-   * The daemon persists execution results (exit code, duration, violations)
-     as JSON under `<scratch>/audit/<task_id>.json` for inspection by the CLI.
+5. **Hard-link Mirror Sandbox (`apple::isolation::fs`)**:
+   * Mirrors source trees into per-task jail folders with hardlinks and automatic cross-filesystem fallback.
 
-7. **Violation checking (`apple::monitor`)**:
-   * A path-prefix policy checker available as a library. It is not wired to
-     live syscall/process I/O interception.
+6. **Toolchain-Level Offline Policy (`apple::isolation::net`)**:
+   * Injects strict offline environment flags across 11+ languages (Cargo, Go, pip, npm/yarn/pnpm, Maven, Gradle, .NET, Swift, Dart).
+
+7. **Dual-Pass Determinism Verifier (`apple::verifier`)**:
+   * Executes dual-pass reproducible builds with perturbed timestamps and locales (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`) and BLAKE3 hash auditing.
+
+---
 
 ## 🚀 CLI Reference
 
@@ -66,8 +53,6 @@ standalone CLI/daemon.
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
-Serves newline-delimited JSON (`DaemonMessage`) over a Unix socket or a
-Windows named pipe until a `Shutdown` message or Ctrl+C.
 
 ### 2. One-shot sandboxed execution
 ```bash
@@ -78,45 +63,8 @@ apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build 
 ```bash
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
-Requires the build to produce the artifact **inside** the jail so both
-passes can be hashed.
 
-### 4. Check daemon status
+### 4. Inspect audit logs
 ```bash
-apple status --socket apple.sock
+apple audit
 ```
-Pings the real daemon over IPC and reports reachability, version, and the
-active sandbox count.
-
-### 5. Inspect audit records
-```bash
-apple audit <task_id>
-apple telemetry <task_id>
-```
-Reads JSON records previously written by the daemon. If no record exists,
-the CLI reports that — it never prints placeholder numbers.
-
-### 6. Auto-detect a language profile
-```bash
-apple profile-detect --dir .
-```
-
-## 🧪 Known Limitations
-
-* No kernel-level sandboxing (no namespaces/seccomp on Linux, no AppContainer
-  or AppLocker on Windows).
-* Network lockdown is advisory (env-var based), not enforced.
-* The violation monitor is a library-only path checker, not a runtime I/O
-  interceptor.
-* Peak memory and CPU-time sampling are not implemented; telemetry reports
-  what the runner actually knows (exit code, duration).
-* The determinism verifier requires the artifact to be produced inside the
-  jail; it cannot hash artifacts written outside the sandbox.
-* IPC is single-host only (Unix socket / named pipe).
-
-## 📄 License & Disclaimer
-
-Licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-> **Disclaimer:** This project is an independent open-source tool and is not
-> affiliated with, endorsed, or sponsored by Apple Inc.

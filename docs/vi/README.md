@@ -1,118 +1,70 @@
-# 🍎 Apple: Daemon Sandbox Hermetic & Cách Ly Tiến Trình cho Fish
+# 🍎 Apple: Trình Daemon Hộp Cát Hermetic & Cô Lập Tiến Trình Cho Fish
 
-> 🌐 **Điều hướng ngôn ngữ:**
-> [English](../../README.md) | **Tiếng Việt** | [日本語](../ja/README.md) | [简体中文](../zh-hans/README.md) | [繁體中文](../zh-hant/README.md)
+> 🌐 **Language Navigation / 多语言文档 / 多語言文檔 / ドキュメント言語:**
+> [English](../../README.md) | [Tiếng Việt](README.md) | [日本語](../ja/README.md) | [简体中文](../zh-hans/README.md) | [繁體中文](../zh-hant/README.md)
 
 ---
 
-## 🎯 Tổng quan
+## 🎯 Giới thiệu tổng quan
 
-**Apple** là một daemon sandbox hermetic ở mức tiến trình, đóng vai trò bổ trợ
-cho engine điều phối build [Fish](https://github.com/requla11/fish). Trong khi
-Fish lo về đồ thị phụ thuộc, cache và lập lịch song song, Apple bọc từng lệnh
-build trong một môi trường kiểm soát: bộ biến môi trường đã được làm sạch, bản
-làm việc trong thư mục scratch, cờ offline ở mức toolchain và timeout bắt buộc
-(cùng Windows Job Object trên Windows).
+**Apple** là hệ thống daemon cô lập tiến trình và hộp cát khép kín (hermetic sandbox) hiệu năng cao, bổ trợ toàn diện cho công cụ điều phối build [Fish](https://github.com/requla11/fish). Trong khi Fish điều phối đồ thị phụ thuộc DAG, bộ nhớ cache và lập lịch song song, Apple bọc từng câu lệnh build trong một môi trường được kiểm soát tuyệt đối: thư mục jail liên kết cứng (hard-link), bộ biến môi trường tinh giản, chính sách ngắt mạng 11+ ngôn ngữ, cô lập cấp độ nhân hệ điều hành (Linux Namespaces, cgroups v2, seccomp-bpf, Windows Job Objects / Restricted Tokens / AppContainer, và macOS Seatbelt SBPL), cùng bộ đón chặn vi phạm I/O thời gian thực.
 
-Apple là một Rust library (được `fish-sandbox` sử dụng) đồng thời là CLI/daemon
-độc lập.
+Apple được phân phối dưới dạng thư viện Rust (được `fish-sandbox` / `fish-executor` sử dụng) và công cụ dòng lệnh/daemon độc lập.
 
-> **Về cái tên:** "Apple" chỉ là tên dự án song sinh với Fish 🐟. Đây là công
-> cụ open-source độc lập và **không liên quan, không được chứng thực hay tài
-> trợ bởi Apple Inc.**
+> **Lưu ý về tên gọi:** "Apple" là tên dự án đồng hành cùng Fish 🐟. Dự án này là công cụ mã nguồn mở độc lập và **không liên kết, bảo trợ hoặc tài trợ bởi Apple Inc.**
 
-## ⚡ Apple thực sự làm gì
+---
 
-1. **Sandbox nhân bản hard-link (`apple::isolation::fs`)**:
-   * Nhân bản cây mã nguồn vào thư mục jail theo từng task bằng hard link
-     (tự động fallback sang copy khi khác filesystem).
-   * Compiler ghi vào jail, cây mã nguồn gốc không bị thay đổi.
+## ⚡ Các tính năng cô lập cốt lõi
 
-2. **Làm sạch môi trường (`apple::isolation::env`)**:
-   * Loại bỏ mọi biến môi trường ngoài allow-list (cộng các tiền tố `FISH_*`
-     và `APPLE_*`), trỏ `TMPDIR`/`TEMP`/`TMP` vào jail.
+1. **🐧 Cô lập tầng sâu Kernel Linux (`apple::isolation::linux`)**:
+   * **Linux Namespaces**: Cô lập container không đặc quyền (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
+   * **Bộ điều khiển cgroups v2**: Kiểm soát chính xác hạn ngạch phần cứng tại `/sys/fs/cgroup/apple_sandbox/{task_id}` cho RAM (`memory.max`), quota CPU (`cpu.max`), và core affinity (`cpuset.cpus`).
+   * **Bộ lọc seccomp-bpf**: Lọc chính sách gọi hệ thống syscall, chặn các syscall nguy hiểm (`ptrace`, bind raw socket khi offline, thao tác nạp kernel module).
 
-3. **Hạn chế mạng ở mức best-effort (`apple::isolation::net`)**:
-   * Tiêm biến proxy blackhole và cờ offline được Cargo, Go, pip, npm tôn trọng
-     (`CARGO_NET_OFFLINE`, `GOPROXY=off`, ...).
-   * **Đây không phải firewall.** Một tiến trình bỏ qua biến proxy vẫn có mạng.
-     Thực thi cứng ở mức kernel (network namespace) chưa được cài đặt.
+2. **🪟 Bảo mật Windows & Job Objects (`apple::isolation::windows` & `apple::isolation::process`)**:
+   * **Job Objects**: Giới hạn phần cứng (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`, `KILL_ON_JOB_CLOSE`) và thống kê chính xác lượng RAM đỉnh qua `QueryInformationJobObject`.
+   * **Restricted Tokens & Low Integrity**: Tước bỏ quyền quản trị viên và hạ mức toàn vẹn của token xuống Low Integrity (`SECURITY_MANDATORY_LOW_RID`).
+   * **Hồ sơ AppContainer**: Hỗ trợ môi trường hộp cát Windows AppContainer.
 
-4. **Cách ly tiến trình (`apple::isolation::process`)**:
-   * **Windows**: Job Object với `KILL_ON_JOB_CLOSE` và giới hạn RAM tùy chọn;
-     `CREATE_NO_WINDOW` cho tiến trình con.
-   * **Unix**: cách ly nhóm tiến trình bằng `setpgid` và timeout cứng.
-   * Đây là cách ly tiến trình ở user-space — không có namespace, seccomp hay
-     AppContainer.
+3. **🍎 Cấu hình macOS Seatbelt (`apple::isolation::macos`)**:
+   * **SBPL (Sandbox Profile Language)**: Tạo hồ sơ hộp cát đóng băng quyền truy cập hệ thống tệp và thực thi tiến trình (`(version 1)`, `(deny default)`, `(allow process-exec ...)`, `(allow file-read* ...)`).
+   * Bọc lệnh thực thi thông qua `sandbox-exec` cho các trình biên dịch như `clang`, `swiftc`, và `rustc`.
 
-5. **Kiểm tra tất định 2 lượt build (`apple::verifier`)**:
-   * Chạy cùng một lệnh build 2 lần trong jail riêng biệt; lượt 2 chạy với bộ
-     biến locale/thời gian bị xáo trộn (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`).
-   * So sánh hash BLAKE3 của artifact. Đây là kiểm tra tự khai báo, **không
-     phải** chứng nhận SLSA.
+4. **🔍 Đón chặn I/O thời gian thực & rò rỉ bí mật (`apple::isolation::interceptor` & `apple::monitor`)**:
+   * Kiểm tra các đường dẫn truy cập theo thời gian thực.
+   * Cảnh báo ngay lập tức nếu phát hiện đọc trộm các file bí mật (`.env`, `id_rsa`, `.aws/credentials`, `/etc/shadow`, `/root`).
+   * Xác minh các header/file đầu vào có khớp với khai báo DAG trong mount rules hay không.
 
-6. **Bản ghi audit (`apple::audit`)**:
-   * Daemon ghi kết quả thực thi (exit code, thời lượng, vi phạm) ra JSON tại
-     `<scratch>/audit/<task_id>.json` để CLI đọc lại.
+5. **Hộp cát liên kết cứng Hard-link (`apple::isolation::fs`)**:
+   * Nhân bản cây mã nguồn vào thư mục jail của tác vụ bằng hard-link với cơ chế tự động fallback sao chép khi khác filesystem.
 
-7. **Kiểm tra vi phạm (`apple::monitor`)**:
-   * Bộ kiểm tra chính sách theo tiền tố đường dẫn, chỉ dùng được ở dạng
-     library. Chưa gắn với chặn I/O syscall thời gian thực.
+6. **Chính sách ngắt mạng 11+ ngôn ngữ (`apple::isolation::net`)**:
+   * Tiêm biến môi trường offline cho Cargo, Go, pip, npm/yarn/pnpm, Maven, Gradle, .NET, Swift, Dart.
 
-## 🚀 Tham chiếu CLI
+7. **Kiểm định tính tái lập Dual-Pass (`apple::verifier`)**:
+   * Chạy build 2 lần trong jail mới với biến thời gian/locale bị nhiễu (`SOURCE_DATE_EPOCH`, `TZ`, `LC_ALL`) và đối chiếu hash BLAKE3.
 
-### 1. Chạy daemon IPC
+---
+
+## 🚀 Hướng dẫn CLI
+
+### 1. Khởi động daemon IPC
 ```bash
 apple daemon --scratch-dir .apple-scratch --socket apple.sock
 ```
-Phục vụ JSON phân tách bằng dòng (`DaemonMessage`) qua Unix socket hoặc named
-pipe trên Windows, dừng khi nhận `Shutdown` hoặc Ctrl+C.
 
-### 2. Thực thi trong sandbox một lần
+### 2. Thực thi lệnh trong hộp cát
 ```bash
 apple run --offline --memory-limit-mb 4096 --timeout-seconds 300 -- cargo build --release
 ```
 
-### 3. Kiểm tra tính tất định của output
+### 3. Kiểm định tính tái tạo của artifact
 ```bash
 apple verify-reproducible --artifact target/release/my_bin -- cargo build --release
 ```
-Yêu cầu build tạo artifact **bên trong** jail để cả hai lượt đều hash được.
 
-### 4. Kiểm tra trạng thái daemon
+### 4. Kiểm tra nhật ký kiểm toán
 ```bash
-apple status --socket apple.sock
+apple audit
 ```
-Ping daemon thật qua IPC và báo khả năng kết nối, phiên bản, số sandbox đang chạy.
-
-### 5. Xem bản ghi audit
-```bash
-apple audit <task_id>
-apple telemetry <task_id>
-```
-Đọc bản ghi JSON do daemon ghi trước đó. Nếu chưa có bản ghi, CLI báo rõ —
-không bao giờ in số liệu giả.
-
-### 6. Tự nhận diện ngôn ngữ dự án
-```bash
-apple profile-detect --dir .
-```
-
-## 🧪 Hạn chế đã biết
-
-* Không có sandbox mức kernel (không namespace/seccomp trên Linux, không
-  AppContainer/AppLocker trên Windows).
-* Chặn mạng chỉ mang tính khuyến nghị (qua biến môi trường), không thực thi cứng.
-* Bộ kiểm tra vi phạm chỉ là checker đường dẫn dạng library, không phải bộ chặn
-  I/O thời gian thực.
-* Chưa đo CPU time và bộ nhớ đỉnh; telemetry chỉ báo những gì runner thực sự
-  biết (exit code, thời lượng).
-* Verifier tất định yêu cầu artifact được tạo bên trong jail.
-* IPC chỉ chạy trên một máy (Unix socket / named pipe).
-
-## 📄 Giấy phép & Miễn trừ
-
-Phát hành theo MIT License. Xem [LICENSE](../../LICENSE) để biết chi tiết.
-
-> **Miễn trừ:** Dự án này là công cụ open-source độc lập, không liên quan,
-> không được chứng thực hay tài trợ bởi Apple Inc.

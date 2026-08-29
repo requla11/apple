@@ -1,4 +1,7 @@
-use crate::protocol::{ExecutionRequest, ExecutionResult};
+use crate::isolation::interceptor::LiveIoInterceptor;
+use crate::isolation::macos::SeatbeltProfileBuilder;
+use crate::protocol::{ExecutionRequest, ExecutionResult, IsolationLevel};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
@@ -10,11 +13,43 @@ impl ProcessIsolationRunner {
         request: ExecutionRequest,
     ) -> Result<ExecutionResult, anyhow::Error> {
         let start_time = Instant::now();
-        let program = request
-            .argv
+        let mut violations = Vec::new();
+
+        let interceptor = LiveIoInterceptor::new(
+            vec![request.working_dir.clone(), std::env::temp_dir()],
+            request.profile.declared_inputs.clone(),
+        );
+
+        for input in &request.profile.declared_inputs {
+            if let Some(v) = interceptor.inspect_path_access(input, false) {
+                violations.push(v);
+            }
+        }
+
+        let program_argv =
+            if cfg!(target_os = "macos") && request.profile.level == IsolationLevel::FullHermetic {
+                let read_paths: Vec<PathBuf> = request
+                    .profile
+                    .mount_rules
+                    .iter()
+                    .map(|m| m.source.clone())
+                    .collect();
+                let write_paths = vec![request.working_dir.join("target")];
+                let sbpl = SeatbeltProfileBuilder::build_sbpl_profile(
+                    &request.working_dir,
+                    &read_paths,
+                    &write_paths,
+                    request.profile.allow_network,
+                );
+                SeatbeltProfileBuilder::wrap_command(&request.argv, &sbpl)
+            } else {
+                request.argv.clone()
+            };
+
+        let program = program_argv
             .first()
             .ok_or_else(|| anyhow::anyhow!("empty argv"))?;
-        let args = &request.argv[1..];
+        let args = &program_argv[1..];
 
         let mut cmd = Command::new(program);
         cmd.args(args);
@@ -29,7 +64,7 @@ impl ProcessIsolationRunner {
 
         #[cfg(windows)]
         {
-            if request.profile.level != crate::protocol::IsolationLevel::Off {
+            if request.profile.level != IsolationLevel::Off {
                 cmd.creation_flags(0x08000000);
             }
         }
@@ -49,7 +84,7 @@ impl ProcessIsolationRunner {
         let child = cmd.spawn()?;
 
         #[cfg(windows)]
-        let _job_guard = if request.profile.level != crate::protocol::IsolationLevel::Off {
+        let _job_guard = if request.profile.level != IsolationLevel::Off {
             Self::apply_windows_job_object(&child, request.profile.memory_limit_mb)
         } else {
             None
@@ -90,8 +125,8 @@ impl ProcessIsolationRunner {
                 stderr: output.stderr,
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: peak_mem,
-                violations: Vec::new(),
-                hermetic_guarantee: request.profile.level != crate::protocol::IsolationLevel::Off,
+                violations,
+                hermetic_guarantee: request.profile.level != IsolationLevel::Off,
             }),
             Ok(Err(err)) => Err(anyhow::anyhow!("process execution failed: {err}")),
             Err(_) => Ok(ExecutionResult {
@@ -101,7 +136,7 @@ impl ProcessIsolationRunner {
                 stderr: b"process timed out under hermetic sandbox policy".to_vec(),
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: peak_mem,
-                violations: Vec::new(),
+                violations,
                 hermetic_guarantee: false,
             }),
         }
@@ -254,6 +289,9 @@ mod tests {
                 timeout_seconds: Some(10),
                 mount_rules: Vec::new(),
                 whitelisted_env: Vec::new(),
+                seccomp_filter: true,
+                appcontainer: false,
+                declared_inputs: Vec::new(),
             },
             keep_jail: true,
         };

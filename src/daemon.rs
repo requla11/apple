@@ -15,6 +15,9 @@ pub struct AppleDaemonServer {
     active_sandboxes: Arc<AtomicUsize>,
     is_running: Arc<AtomicBool>,
     audit_store: AuditStore,
+    cancel_handles: Arc<
+        parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+    >,
 }
 
 impl AppleDaemonServer {
@@ -24,6 +27,7 @@ impl AppleDaemonServer {
             active_sandboxes: Arc::new(AtomicUsize::new(0)),
             is_running: Arc::new(AtomicBool::new(true)),
             audit_store: AuditStore::new(),
+            cancel_handles: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -35,10 +39,16 @@ impl AppleDaemonServer {
         self.is_running.load(Ordering::SeqCst)
     }
 
-    /// Serve IPC requests on `endpoint` (a filesystem path on Unix, a named
-    /// pipe name on Windows). Messages are newline-delimited JSON
-    /// (`DaemonMessage`). Returns when a `Shutdown` message is received or
-    /// Ctrl+C is pressed.
+    pub fn cancel_task(&self, task_id: &str) -> bool {
+        let mut handles = self.cancel_handles.lock();
+        if let Some(tx) = handles.remove(task_id) {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        }
+    }
+
     pub async fn serve(self: Arc<Self>, endpoint: &str) -> Result<()> {
         #[cfg(unix)]
         {
@@ -76,7 +86,6 @@ impl AppleDaemonServer {
                     _ = tokio::signal::ctrl_c() => break,
                     connected = server.connect() => {
                         connected?;
-                        // Queue the next pipe instance for the following client.
                         let next = ServerOptions::new().create(&pipe_name)?;
                         let current = server;
                         server = next;
@@ -91,8 +100,6 @@ impl AppleDaemonServer {
         }
     }
 
-    /// Send a `Ping` to a daemon listening on `endpoint`. Returns the
-    /// daemon's version and active sandbox count if reachable.
     pub async fn ping_endpoint(endpoint: &str) -> Result<(String, usize)> {
         #[cfg(unix)]
         {
@@ -120,7 +127,7 @@ impl AppleDaemonServer {
         while let Some(line) = lines.next_line().await? {
             let message = match serde_json::from_str::<DaemonMessage>(&line) {
                 Ok(msg) => msg,
-                Err(_) => break, // malformed frame; close the connection
+                Err(_) => break,
             };
 
             if matches!(message, DaemonMessage::Shutdown) {
@@ -149,7 +156,10 @@ impl AppleDaemonServer {
                 let result = self.execute_task(request).await;
                 DaemonMessage::Result(result)
             }
-            DaemonMessage::Cancel { .. } => DaemonMessage::Ping,
+            DaemonMessage::Cancel { task_id } => {
+                let _ = self.cancel_task(&task_id);
+                DaemonMessage::Cancelled { task_id }
+            }
             DaemonMessage::Shutdown => {
                 self.is_running.store(false, Ordering::SeqCst);
                 DaemonMessage::Pong {
@@ -164,10 +174,14 @@ impl AppleDaemonServer {
     pub async fn execute_task(&self, mut request: ExecutionRequest) -> ExecutionResult {
         self.active_sandboxes.fetch_add(1, Ordering::SeqCst);
 
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        {
+            let mut handles = self.cancel_handles.lock();
+            handles.insert(request.task_id.clone(), cancel_tx);
+        }
+
         let fs_mgr = HermeticFilesystemManager::new(&self.scratch_dir);
 
-        // Prepare the jail first so the per-task scratch tmp directory exists
-        // and can be handed to the environment sanitizer as an absolute path.
         let jail_dir =
             match fs_mgr.prepare_workspace_jail(&request.task_id, &request.profile.mount_rules) {
                 Ok(jail) => {
@@ -193,7 +207,18 @@ impl AppleDaemonServer {
             request.working_dir = jail.clone();
         }
 
-        let exec_res = ProcessIsolationRunner::run_sandboxed(request.clone()).await;
+        let exec_res = ProcessIsolationRunner::run_sandboxed_cancellable_streamed(
+            request.clone(),
+            Some(cancel_rx),
+            None,
+        )
+        .await;
+
+        {
+            let mut handles = self.cancel_handles.lock();
+            handles.remove(&request.task_id);
+        }
+
         if !request.keep_jail {
             let _ = fs_mgr.cleanup_jail(&request.task_id);
         }
@@ -219,9 +244,6 @@ impl AppleDaemonServer {
         final_result
     }
 
-    /// Persist the execution result as JSON under
-    /// `<scratch>/audit/<task_id>.json` so other processes (e.g. the CLI)
-    /// can inspect real audit data instead of placeholder output.
     fn persist_audit(&self, result: &ExecutionResult) {
         let dir = self.scratch_dir.join("audit");
         if std::fs::create_dir_all(&dir).is_err() {
@@ -275,5 +297,45 @@ fn normalize_windows_pipe(endpoint: &str) -> String {
         endpoint.to_string()
     } else {
         format!(r"\\.\pipe\{endpoint}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_daemon_dispatch_ping_pong() {
+        let temp = TempDir::new().unwrap();
+        let server = AppleDaemonServer::new(temp.path().to_path_buf());
+        let reply = server.dispatch_message(DaemonMessage::Ping).await;
+        if let DaemonMessage::Pong {
+            version,
+            active_sandboxes,
+        } = reply
+        {
+            assert_eq!(version, env!("CARGO_PKG_VERSION"));
+            assert_eq!(active_sandboxes, 0);
+        } else {
+            panic!("expected Pong");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_daemon_dispatch_cancel() {
+        let temp = TempDir::new().unwrap();
+        let server = AppleDaemonServer::new(temp.path().to_path_buf());
+        let reply = server
+            .dispatch_message(DaemonMessage::Cancel {
+                task_id: "test_task_cancel".to_string(),
+            })
+            .await;
+        assert_eq!(
+            reply,
+            DaemonMessage::Cancelled {
+                task_id: "test_task_cancel".to_string(),
+            }
+        );
     }
 }

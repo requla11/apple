@@ -6,11 +6,21 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
+use tokio::io::AsyncReadExt;
+
 pub struct ProcessIsolationRunner;
 
 impl ProcessIsolationRunner {
     pub async fn run_sandboxed(
         request: ExecutionRequest,
+    ) -> Result<ExecutionResult, anyhow::Error> {
+        Self::run_sandboxed_cancellable_streamed(request, None, None).await
+    }
+
+    pub async fn run_sandboxed_cancellable_streamed(
+        request: ExecutionRequest,
+        mut cancel_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+        chunk_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::protocol::DaemonMessage>>,
     ) -> Result<ExecutionResult, anyhow::Error> {
         let start_time = Instant::now();
         let mut violations = Vec::new();
@@ -81,7 +91,7 @@ impl ProcessIsolationRunner {
             }
         }
 
-        let child = cmd.spawn()?;
+        let mut child = cmd.spawn()?;
 
         #[cfg(windows)]
         let _job_guard = if request.profile.level != IsolationLevel::Off {
@@ -90,13 +100,101 @@ impl ProcessIsolationRunner {
             None
         };
 
+        let mut stdout_pipe = child.stdout.take();
+        let mut stderr_pipe = child.stderr.take();
+
+        let task_id = request.task_id.clone();
+        let chunk_tx_out = chunk_tx.clone();
+        let task_id_out = task_id.clone();
+        let stdout_task = tokio::spawn(async move {
+            let mut accum = Vec::new();
+            if let Some(mut pipe) = stdout_pipe {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = pipe.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    accum.extend_from_slice(&buf[..n]);
+                    if let Some(ref tx) = chunk_tx_out {
+                        let _ = tx.send(crate::protocol::DaemonMessage::StdoutChunk {
+                            task_id: task_id_out.clone(),
+                            data: buf[..n].to_vec(),
+                        });
+                    }
+                }
+            }
+            accum
+        });
+
+        let chunk_tx_err = chunk_tx;
+        let task_id_err = task_id.clone();
+        let stderr_task = tokio::spawn(async move {
+            let mut accum = Vec::new();
+            if let Some(mut pipe) = stderr_pipe {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = pipe.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    accum.extend_from_slice(&buf[..n]);
+                    if let Some(ref tx) = chunk_tx_err {
+                        let _ = tx.send(crate::protocol::DaemonMessage::StderrChunk {
+                            task_id: task_id_err.clone(),
+                            data: buf[..n].to_vec(),
+                        });
+                    }
+                }
+            }
+            accum
+        });
+
         let timeout_duration = request
             .profile
             .timeout_seconds
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(3600));
 
-        let output_res = tokio::time::timeout(timeout_duration, child.wait_with_output()).await;
+        let wait_fut = child.wait();
+        tokio::pin!(wait_fut);
+
+        let timeout_fut = tokio::time::sleep(timeout_duration);
+        tokio::pin!(timeout_fut);
+
+        let mut was_cancelled = false;
+        let mut was_timeout = false;
+
+        let status_res = tokio::select! {
+            res = &mut wait_fut => {
+                res.map_err(|e| anyhow::anyhow!("child wait failed: {e}"))
+            }
+            _ = &mut timeout_fut => {
+                was_timeout = true;
+                let _ = child.start_kill();
+                #[cfg(unix)]
+                if let Some(pid) = child.id() {
+                    unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
+                }
+                Err(anyhow::anyhow!("timeout"))
+            }
+            _ = async {
+                if let Some(ref mut rx) = cancel_rx {
+                    let _ = rx.await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                was_cancelled = true;
+                let _ = child.start_kill();
+                #[cfg(unix)]
+                if let Some(pid) = child.id() {
+                    unsafe { libc::killpg(pid as i32, libc::SIGKILL); }
+                }
+                Err(anyhow::anyhow!("cancelled"))
+            }
+        };
+
+        let stdout_data = stdout_task.await.unwrap_or_default();
+        let stderr_data = stderr_task.await.unwrap_or_default();
         let elapsed = start_time.elapsed().as_millis() as u64;
 
         let peak_mem = {
@@ -117,29 +215,43 @@ impl ProcessIsolationRunner {
             }
         };
 
-        match output_res {
-            Ok(Ok(output)) => Ok(ExecutionResult {
+        if was_cancelled {
+            return Ok(ExecutionResult {
                 task_id: request.task_id,
-                exit_code: output.status.code().unwrap_or(-1),
-                stdout: output.stdout,
-                stderr: output.stderr,
+                exit_code: 130,
+                stdout: stdout_data,
+                stderr: b"process cancelled by daemon request".to_vec(),
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: peak_mem,
                 violations,
-                hermetic_guarantee: request.profile.level != IsolationLevel::Off,
-            }),
-            Ok(Err(err)) => Err(anyhow::anyhow!("process execution failed: {err}")),
-            Err(_) => Ok(ExecutionResult {
+                hermetic_guarantee: false,
+            });
+        }
+
+        if was_timeout {
+            return Ok(ExecutionResult {
                 task_id: request.task_id,
                 exit_code: 124,
-                stdout: Vec::new(),
+                stdout: stdout_data,
                 stderr: b"process timed out under hermetic sandbox policy".to_vec(),
                 execution_duration_ms: elapsed,
                 peak_memory_bytes: peak_mem,
                 violations,
                 hermetic_guarantee: false,
-            }),
+            });
         }
+
+        let status = status_res?;
+        Ok(ExecutionResult {
+            task_id: request.task_id,
+            exit_code: status.code().unwrap_or(-1),
+            stdout: stdout_data,
+            stderr: stderr_data,
+            execution_duration_ms: elapsed,
+            peak_memory_bytes: peak_mem,
+            violations,
+            hermetic_guarantee: request.profile.level != IsolationLevel::Off,
+        })
     }
 
     #[cfg(unix)]
@@ -301,5 +413,116 @@ mod tests {
         let stdout_str = String::from_utf8_lossy(&res.stdout);
         assert!(stdout_str.contains("hello_apple_sandbox"));
         assert!(res.hermetic_guarantee);
+    }
+
+    #[tokio::test]
+    async fn test_process_isolation_runner_streaming() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let req = ExecutionRequest {
+            task_id: "test_stream".to_string(),
+            working_dir: std::env::temp_dir(),
+            argv: vec![
+                if cfg!(windows) {
+                    "cmd".to_string()
+                } else {
+                    "sh".to_string()
+                },
+                if cfg!(windows) {
+                    "/C".to_string()
+                } else {
+                    "-c".to_string()
+                },
+                "echo stream_test_output".to_string(),
+            ],
+            env: HashMap::new(),
+            profile: SandboxProfile {
+                name: "test".to_string(),
+                level: IsolationLevel::ProcessOnly,
+                allow_network: false,
+                memory_limit_mb: Some(512),
+                cpu_affinity_mask: None,
+                timeout_seconds: Some(10),
+                mount_rules: Vec::new(),
+                whitelisted_env: Vec::new(),
+                seccomp_filter: true,
+                appcontainer: false,
+                declared_inputs: Vec::new(),
+            },
+            keep_jail: true,
+        };
+
+        let res = ProcessIsolationRunner::run_sandboxed_cancellable_streamed(req, None, Some(tx))
+            .await
+            .unwrap();
+        assert_eq!(res.exit_code, 0);
+
+        let mut received_chunks = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            if let crate::protocol::DaemonMessage::StdoutChunk { data, .. } = msg {
+                received_chunks.extend_from_slice(&data);
+            }
+        }
+        let streamed_str = String::from_utf8_lossy(&received_chunks);
+        assert!(streamed_str.contains("stream_test_output"));
+    }
+
+    #[tokio::test]
+    async fn test_process_isolation_runner_cancellation() {
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        let req = ExecutionRequest {
+            task_id: "test_cancel".to_string(),
+            working_dir: std::env::temp_dir(),
+            argv: vec![
+                if cfg!(windows) {
+                    "ping".to_string()
+                } else {
+                    "sleep".to_string()
+                },
+                if cfg!(windows) {
+                    "127.0.0.1".to_string()
+                } else {
+                    "10".to_string()
+                },
+                if cfg!(windows) {
+                    "-n".to_string()
+                } else {
+                    "".to_string()
+                },
+                if cfg!(windows) {
+                    "10".to_string()
+                } else {
+                    "".to_string()
+                },
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect(),
+            env: HashMap::new(),
+            profile: SandboxProfile {
+                name: "test".to_string(),
+                level: IsolationLevel::ProcessOnly,
+                allow_network: false,
+                memory_limit_mb: Some(512),
+                cpu_affinity_mask: None,
+                timeout_seconds: Some(10),
+                mount_rules: Vec::new(),
+                whitelisted_env: Vec::new(),
+                seccomp_filter: true,
+                appcontainer: false,
+                declared_inputs: Vec::new(),
+            },
+            keep_jail: true,
+        };
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = cancel_tx.send(());
+        });
+
+        let res =
+            ProcessIsolationRunner::run_sandboxed_cancellable_streamed(req, Some(cancel_rx), None)
+                .await
+                .unwrap();
+        assert_eq!(res.exit_code, 130);
     }
 }

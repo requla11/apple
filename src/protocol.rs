@@ -121,7 +121,7 @@ pub struct ExecutionResult {
     pub hermetic_guarantee: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DaemonMessage {
     Ping,
     Pong {
@@ -130,7 +130,24 @@ pub enum DaemonMessage {
     },
     Execute(ExecutionRequest),
     Result(ExecutionResult),
+    StdoutChunk {
+        task_id: String,
+        data: Vec<u8>,
+    },
+    StderrChunk {
+        task_id: String,
+        data: Vec<u8>,
+    },
+    Telemetry {
+        task_id: String,
+        cpu_percent: f32,
+        memory_rss_bytes: u64,
+        peak_memory_bytes: u64,
+    },
     Cancel {
+        task_id: String,
+    },
+    Cancelled {
         task_id: String,
     },
     Shutdown,

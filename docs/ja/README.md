@@ -2,6 +2,9 @@
 
 > 🌐 **Language Navigation / 多语言文档 / 多語言文檔 / ドキュメント言語:**
 > [English](../../README.md) | [Tiếng Việt](../vi/README.md) | [日本語](README.md) | [简体中文](../zh-hans/README.md) | [繁體中文](../zh-hant/README.md)
+>
+> 🗺️ **[技術ロードマップ（ROADMAP）を見る](ROADMAP.md)**
+
 
 ---
 

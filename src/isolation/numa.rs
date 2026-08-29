@@ -10,8 +10,8 @@ impl NumaAffinityController {
             if let Ok(entries) = std::fs::read_dir("/sys/devices/system/node") {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("node") {
-                        if let Ok(id) = name[4..].parse::<u32>() {
+                    if let Some(stripped) = name.strip_prefix("node") {
+                        if let Ok(id) = stripped.parse::<u32>() {
                             nodes.push(id);
                         }
                     }

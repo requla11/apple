@@ -133,7 +133,6 @@ impl CgroupV2Controller {
     }
 }
 
-
 pub struct SeccompProfileBuilder;
 
 impl SeccompProfileBuilder {
@@ -186,7 +185,6 @@ mod tests {
         assert_eq!(ctrl.task_id(), "task_build_1");
         assert!(ctrl.cgroup_root().ends_with("apple_sandbox/task_build_1"));
     }
-
 
     #[test]
     fn test_seccomp_profile_filter_offline_denials() {

@@ -82,6 +82,8 @@ apple audit build_target_01
 
 ---
 
-## 📄 License
+## 📄 License & Disclaimer
 
 Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+> **Disclaimer:** This project is an independent open-source tool and is not affiliated with, endorsed, or sponsored by Apple Inc.

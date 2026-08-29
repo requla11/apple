@@ -79,6 +79,8 @@ apple audit build_target_01
 
 ---
 
-## 📄 Bản quyền
+## 📄 Bản quyền & Tuyên bố miễn trừ
 
 Phát hành theo giấy phép MIT License. Xem [LICENSE](../../LICENSE) để biết chi tiết.
+
+> **Tuyên bố miễn trừ:** Dự án này là một công cụ mã nguồn mở độc lập, không liên kết, xác nhận hay được tài trợ bởi Apple Inc.

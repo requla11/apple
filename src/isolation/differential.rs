@@ -23,20 +23,25 @@ impl DifferentialArtifactSynchronizer {
             let path = entry.path();
             if path.is_dir() {
                 Self::collect_metadata(root, &path, out)?;
-            } else if path.is_file() {
-                if let Ok(rel) = path.strip_prefix(root) {
-                    if let Ok(meta) = entry.metadata() {
-                        let mtime = meta
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        let size = meta.len();
-                        out.insert(rel.to_path_buf(), (mtime, size));
-                    }
-                }
+                continue;
             }
+            if !path.is_file() {
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let size = meta.len();
+            out.insert(rel.to_path_buf(), (mtime, size));
         }
         Ok(())
     }

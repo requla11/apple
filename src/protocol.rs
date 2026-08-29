@@ -35,6 +35,16 @@ pub struct SandboxProfile {
     pub timeout_seconds: Option<u64>,
     pub mount_rules: Vec<MountRule>,
     pub whitelisted_env: Vec<String>,
+    #[serde(default)]
+    pub seccomp_filter: bool,
+    #[serde(default)]
+    pub appcontainer: bool,
+    #[serde(default)]
+    pub declared_inputs: Vec<PathBuf>,
+    #[serde(default)]
+    pub max_processes: Option<u32>,
+    #[serde(default)]
+    pub numa_node: Option<u32>,
 }
 
 impl Default for SandboxProfile {
@@ -57,7 +67,31 @@ impl Default for SandboxProfile {
                 "GOOS".to_string(),
                 "GOARCH".to_string(),
                 "NODE_ENV".to_string(),
+                "HOME".to_string(),
+                "USERPROFILE".to_string(),
+                "CARGO_HOME".to_string(),
+                "RUSTUP_HOME".to_string(),
+                "SystemRoot".to_string(),
+                "SystemDrive".to_string(),
+                "windir".to_string(),
+                "COMSPEC".to_string(),
+                "ProgramFiles".to_string(),
+                "ProgramFiles(x86)".to_string(),
+                "ProgramW6432".to_string(),
+                "APPDATA".to_string(),
+                "LOCALAPPDATA".to_string(),
+                "INCLUDE".to_string(),
+                "LIB".to_string(),
+                "LIBPATH".to_string(),
+                "VSINSTALLDIR".to_string(),
+                "VCINSTALLDIR".to_string(),
+                "DevEnvDir".to_string(),
             ],
+            seccomp_filter: true,
+            appcontainer: false,
+            declared_inputs: Vec::new(),
+            max_processes: Some(512),
+            numa_node: None,
         }
     }
 }
@@ -69,6 +103,8 @@ pub struct ExecutionRequest {
     pub argv: Vec<String>,
     pub env: HashMap<String, String>,
     pub profile: SandboxProfile,
+    #[serde(default)]
+    pub keep_jail: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,7 +127,7 @@ pub struct ExecutionResult {
     pub hermetic_guarantee: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DaemonMessage {
     Ping,
     Pong {
@@ -100,7 +136,24 @@ pub enum DaemonMessage {
     },
     Execute(ExecutionRequest),
     Result(ExecutionResult),
+    StdoutChunk {
+        task_id: String,
+        data: Vec<u8>,
+    },
+    StderrChunk {
+        task_id: String,
+        data: Vec<u8>,
+    },
+    Telemetry {
+        task_id: String,
+        cpu_percent: f32,
+        memory_rss_bytes: u64,
+        peak_memory_bytes: u64,
+    },
     Cancel {
+        task_id: String,
+    },
+    Cancelled {
         task_id: String,
     },
     Shutdown,

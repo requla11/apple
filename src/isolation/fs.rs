@@ -50,45 +50,77 @@ impl HermeticFilesystemManager {
             return Ok(());
         }
         if src.is_file() {
-            if let Some(parent) = dst.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            if std::fs::hard_link(src, dst).is_err() {
-                std::fs::copy(src, dst)?;
-            }
-            return Ok(());
+            return crate::isolation::cow::CowCloner::clone_file(src, dst);
         }
 
         std::fs::create_dir_all(dst)?;
         for entry in std::fs::read_dir(src)? {
             let entry = entry?;
             let entry_path = entry.path();
+            if entry_path.is_dir() && entry.file_name() == ".apple-scratch" {
+                continue;
+            }
             let dest_path = dst.join(entry.file_name());
             if entry_path.is_dir() {
                 Self::mirror_hardlink_tree(&entry_path, &dest_path)?;
             } else {
-                if let Some(parent) = dest_path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                if std::fs::hard_link(&entry_path, &dest_path).is_err() {
-                    std::fs::copy(&entry_path, &dest_path)?;
-                }
+                crate::isolation::cow::CowCloner::clone_file(&entry_path, &dest_path)?;
             }
         }
         Ok(())
     }
 
     fn link_or_copy_readonly(&self, src: &Path, dst: &Path) -> Result<(), std::io::Error> {
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
+        if src.is_dir() {
+            Self::mirror_hardlink_tree(src, dst)
+        } else if src.is_file() {
+            crate::isolation::cow::CowCloner::clone_file(src, dst)
+        } else {
+            Ok(())
         }
-        if src.is_file() {
-            if std::fs::hard_link(src, dst).is_err() {
-                std::fs::copy(src, dst)?;
-            }
-        } else if src.is_dir() {
-            Self::mirror_hardlink_tree(src, dst)?;
-        }
-        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{MountKind, MountRule};
+
+    #[test]
+    fn test_hermetic_filesystem_manager_lifecycle() {
+        let temp_dir = std::env::temp_dir().join(format!("apple_fs_test_{}", std::process::id()));
+        let manager = HermeticFilesystemManager::new(&temp_dir);
+
+        let src_file = temp_dir.join("src.txt");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(&src_file, "hello hermetic world").unwrap();
+
+        let rules = vec![
+            MountRule {
+                source: src_file.clone(),
+                target: PathBuf::from("input.txt"),
+                kind: MountKind::ReadOnly,
+            },
+            MountRule {
+                source: PathBuf::from("/tmp"),
+                target: PathBuf::from("output"),
+                kind: MountKind::ReadWrite,
+            },
+        ];
+
+        let jail = manager
+            .prepare_workspace_jail("test_task_1", &rules)
+            .unwrap();
+        assert!(jail.exists());
+        assert!(jail.join("input.txt").exists());
+        assert!(jail.join("output").exists());
+
+        let content = std::fs::read_to_string(jail.join("input.txt")).unwrap();
+        assert_eq!(content, "hello hermetic world");
+
+        manager.cleanup_jail("test_task_1").unwrap();
+        assert!(!jail.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

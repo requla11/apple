@@ -1,6 +1,7 @@
 use crate::protocol::{ExecutionResult, ViolationRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,4 +50,26 @@ impl AuditStore {
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default()
     }
+}
+
+/// Filesystem location of a persisted audit record for `task_id` under the
+/// given scratch directory. Used by the daemon when writing records and by
+/// the CLI when reading them back.
+pub fn audit_record_path(scratch_dir: &Path, task_id: &str) -> PathBuf {
+    scratch_dir
+        .join("audit")
+        .join(format!("{}.json", sanitize_task_filename(task_id)))
+}
+
+fn sanitize_task_filename(task_id: &str) -> String {
+    task_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

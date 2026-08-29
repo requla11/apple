@@ -17,31 +17,31 @@ Lộ trình này vạch rõ các giai đoạn kỹ thuật, cột mốc kiến t
 
 ```mermaid
 gantt
-    title Lộ trình Phát triển Kỹ thuật của Apple
+    title Lộ trình Kỹ thuật Apple Hermetic Sandbox (Khởi động: 08/2026)
     dateFormat  YYYY-MM
     section Giai đoạn 1: Cô lập Nhân Hệ điều hành
-    Linux Namespaces & cgroups v2           :done,    des1, 2026-01, 2026-04
-    Windows Job Objects & Restricted Tokens  :done,    des2, 2026-01, 2026-04
-    macOS Seatbelt & Live IO Interceptor     :done,    des3, 2026-02, 2026-04
+    Linux Namespaces & cgroups v2           :done,    des1, 2026-08, 2026-09
+    Windows Job Objects & Restricted Tokens  :done,    des2, 2026-08, 2026-09
+    macOS Seatbelt & Live IO Interceptor     :done,    des3, 2026-08, 2026-09
     section Giai đoạn 2: Lưu trữ Jail Siêu tốc
-    Tích hợp Landlock LSM                  :active,  des4, 2026-04, 2026-06
-    OverlayFS & Nhân bản Khối CoW           :         des5, 2026-05, 2026-07
-    Trích xuất Artifact Vi sai              :         des6, 2026-06, 2026-08
+    Tích hợp Landlock LSM                  :active,  des4, 2026-09, 2026-10
+    OverlayFS & Nhân bản Khối CoW           :         des5, 2026-09, 2026-10
+    Trích xuất Artifact Vi sai              :         des6, 2026-10, 2026-11
     section Giai đoạn 3: Streaming & IPC Thời gian thực
-    Stream Stdout/Stderr dạng Chunk         :         des7, 2026-07, 2026-09
-    Phát sóng Đo lường Tài nguyên Real-Time :         des8, 2026-08, 2026-10
-    Giao thức Hủy Tác vụ Tức thì           :         des9, 2026-09, 2026-10
+    Stream Stdout/Stderr dạng Chunk         :         des7, 2026-10, 2026-11
+    Phát sóng Đo lường Tài nguyên Real-Time :         des8, 2026-10, 2026-12
+    Giao thức Hủy Tác vụ Tức thì           :         des9, 2026-11, 2026-12
     section Giai đoạn 4: Bảo mật Chuỗi Cung ứng
-    Sinh Chứng thực SLSA v1.0 Provenance    :         des10, 2026-10, 2026-12
-    Ký số Mật mã học Ed25519                :         des11, 2026-11, 2026-12
-    Tự động sinh SBOM SPDX/CycloneDX        :         des12, 2026-11, 2027-01
+    Sinh Chứng thực SLSA v1.0 Provenance    :         des10, 2026-11, 2027-01
+    Ký số Mật mã học Ed25519                :         des11, 2026-12, 2027-01
+    Tự động sinh SBOM SPDX/CycloneDX        :         des12, 2026-12, 2027-02
 ```
 
 ---
 
 ## 🎯 Chi tiết từng Giai đoạn
 
-### Giai đoạn 1: Cô lập Tầng sâu Kernel & Ngăn chặn Tiến trình (Đã hoàn thành)
+### Giai đoạn 1: Cô lập Tầng sâu Kernel & Ngăn chặn Tiến trình (Tháng 08/2026 - Đã hoàn thành)
 - [x] **Linux Kernel Namespaces**: Cô lập container không đặc quyền (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
 - [x] **Kiểm soát cgroups v2**: Khống chế hạn ngạch phần cứng tuyệt đối cho RAM (`memory.max`), quota CPU (`cpu.max`), và core affinity (`cpuset.cpus`).
 - [x] **Lọc Syscall seccomp-bpf**: Chặn các lời gọi hệ thống nguy hiểm (`ptrace`, bind socket khi offline, nạp module nhân).
@@ -51,7 +51,8 @@ gantt
 
 ---
 
-### Giai đoạn 2: Lưu trữ Jail Siêu tốc & Ảnh chụp CoW Không Sao Chép (Q2-Q3 2026)
+### Giai đoạn 2: Lưu trữ Jail Siêu tốc & Ảnh chụp CoW Không Sao Chép (Tháng 09 - 10/2026)
+
 - [ ] **Tích hợp Linux Landlock LSM**:
   - Hạn chế quyền truy cập filesystem trực tiếp ở cấp độ nhân Linux (Kernel 5.13+) không cần quyền root.
   - Cấp quyền đọc/ghi chi tiết cho từng thư mục cụ thể của tác vụ build.

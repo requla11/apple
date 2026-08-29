@@ -17,31 +17,31 @@
 
 ```mermaid
 gantt
-    title Apple 技術進化ロードマップ
+    title Apple 技術進化ロードマップ (開始時期: 2026年8月)
     dateFormat  YYYY-MM
     section フェーズ 1: 深層カーネル分離
-    Linux Namespaces & cgroups v2           :done,    des1, 2026-01, 2026-04
-    Windows Job Objects & 制限付きトークン  :done,    des2, 2026-01, 2026-04
-    macOS Seatbelt & Live IO インターセプタ :done,    des3, 2026-02, 2026-04
+    Linux Namespaces & cgroups v2           :done,    des1, 2026-08, 2026-09
+    Windows Job Objects & 制限付きトークン  :done,    des2, 2026-08, 2026-09
+    macOS Seatbelt & Live IO インターセプタ :done,    des3, 2026-08, 2026-09
     section フェーズ 2: 超高速 Jail ストレージ
-    Landlock LSM 統合                       :active,  des4, 2026-04, 2026-06
-    OverlayFS & CoW ブロッククローン        :         des5, 2026-05, 2026-07
-    差分アーティファクト抽出                :         des6, 2026-06, 2026-08
+    Landlock LSM 統合                       :active,  des4, 2026-09, 2026-10
+    OverlayFS & CoW ブロッククローン        :         des5, 2026-09, 2026-10
+    差分アーティファクト抽出                :         des6, 2026-10, 2026-11
     section フェーズ 3: リアルタイムストリーミング & IPC
-    チャンク化 Stdout/Stderr ストリーミング :         des7, 2026-07, 2026-09
-    リアルタイムリソーステレメトリ配信      :         des8, 2026-08, 2026-10
-    即時タスクキャンセルプロトコル          :         des9, 2026-09, 2026-10
+    チャンク化 Stdout/Stderr ストリーミング :         des7, 2026-10, 2026-11
+    リアルタイムリソーステレメトリ配信      :         des8, 2026-10, 2026-12
+    即時タスクキャンセルプロトコル          :         des9, 2026-11, 2026-12
     section フェーズ 4: サプライチェーンセキュリティ
-    SLSA v1.0 Provenance 生成               :         des10, 2026-10, 2026-12
-    Ed25519 暗号署名証明                    :         des11, 2026-11, 2026-12
-    自動 SPDX/CycloneDX SBOM 生成           :         des12, 2026-11, 2027-01
+    SLSA v1.0 Provenance 生成               :         des10, 2026-11, 2027-01
+    Ed25519 暗号署名証明                    :         des11, 2026-12, 2027-01
+    自動 SPDX/CycloneDX SBOM 生成           :         des12, 2026-12, 2027-02
 ```
 
 ---
 
 ## 🎯 各フェーズ詳細
 
-### フェーズ 1: OS 深層カーネル分離＆プロセス封じ込め (完了)
+### フェーズ 1: OS 深層カーネル分離＆プロセス封じ込め (2026年8月 - 完了)
 - [x] **Linux カーネル Namespaces**: 非特権コンテナ分離 (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`)。
 - [x] **cgroups v2 ハードウェア制御**: RAM 上限 (`memory.max`)、CPU クォータ (`cpu.max`)、コアアフィニティ (`cpuset.cpus`) の厳格な管理。
 - [x] **seccomp-bpf システムコールフィルタ**: 不正なシステムコールのブロック（`ptrace`、オフライン時の raw ソケットバインド、カーネルモジュール操作など）。
@@ -51,7 +51,8 @@ gantt
 
 ---
 
-### フェーズ 2: 超高速 Jail ストレージ＆ゼロコピー・スナップショット (2026 Q2-Q3)
+### フェーズ 2: 超高速 Jail ストレージ＆ゼロコピー・スナップショット (2026年9月 - 10月)
+
 - [ ] **Linux Landlock LSM 統合**:
   - Linux 5.13+ カーネルレベルでの非特権ファイルシステムアクセス制御。
   - root 権限不要で各タスク専用ディレクトリへの詳細なアクセス許可。

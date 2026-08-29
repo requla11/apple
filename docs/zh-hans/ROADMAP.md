@@ -17,31 +17,31 @@
 
 ```mermaid
 gantt
-    title Apple 技术演进路线图
+    title Apple 技术演进路线图 (启动时间: 2026年8月)
     dateFormat  YYYY-MM
     section 第一阶段: 深度内核隔离
-    Linux Namespaces 与 cgroups v2           :done,    des1, 2026-01, 2026-04
-    Windows Job Objects 与受限令牌           :done,    des2, 2026-01, 2026-04
-    macOS Seatbelt 与 Live IO 拦截器         :done,    des3, 2026-02, 2026-04
+    Linux Namespaces 与 cgroups v2           :done,    des1, 2026-08, 2026-09
+    Windows Job Objects 与受限令牌           :done,    des2, 2026-08, 2026-09
+    macOS Seatbelt 与 Live IO 拦截器         :done,    des3, 2026-08, 2026-09
     section 第二阶段: 高性能 Jail 存储
-    Landlock LSM 集成                        :active,  des4, 2026-04, 2026-06
-    OverlayFS 与 CoW 块克隆                  :         des5, 2026-05, 2026-07
-    差分产物提取                             :         des6, 2026-06, 2026-08
+    Landlock LSM 集成                        :active,  des4, 2026-09, 2026-10
+    OverlayFS 与 CoW 块克隆                  :         des5, 2026-09, 2026-10
+    差分产物提取                             :         des6, 2026-10, 2026-11
     section 第三阶段: 实时流式传输与 IPC
-    分块 Stdout/Stderr 流式传输              :         des7, 2026-07, 2026-09
-    实时资源遥测广播                         :         des8, 2026-08, 2026-10
-    即时任务取消协议                         :         des9, 2026-09, 2026-10
+    分块 Stdout/Stderr 流式传输              :         des7, 2026-10, 2026-11
+    实时资源遥测广播                         :         des8, 2026-10, 2026-12
+    即时任务取消协议                         :         des9, 2026-11, 2026-12
     section 第四阶段: 供应链安全
-    SLSA v1.0 出处元数据生成                 :         des10, 2026-10, 2026-12
-    Ed25519 密码学签名证明                   :         des11, 2026-11, 2026-12
-    自动化 SPDX/CycloneDX SBOM 生成          :         des12, 2026-11, 2027-01
+    SLSA v1.0 出处元数据生成                 :         des10, 2026-11, 2027-01
+    Ed25519 密码学签名证明                   :         des11, 2026-12, 2027-01
+    自动化 SPDX/CycloneDX SBOM 生成          :         des12, 2026-12, 2027-02
 ```
 
 ---
 
 ## 🎯 各阶段详细规划
 
-### 第一阶段: 操作系统深度内核隔离与进程遏制 (已完成)
+### 第一阶段: 操作系统深度内核隔离与进程遏制 (2026年8月 - 已完成)
 - [x] **Linux 内核命名空间**: 非特权容器隔离 (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`)。
 - [x] **cgroups v2 硬件配额**: 严格控制内存上限 (`memory.max`)、CPU 配额 (`cpu.max`) 和核心亲和性 (`cpuset.cpus`)。
 - [x] **seccomp-bpf 系统调用过滤**: 拦截非法系统调用（`ptrace`、离线状态下的原始套接字绑定、内核模块加载等）。
@@ -51,7 +51,8 @@ gantt
 
 ---
 
-### 第二阶段: 极速 Jail 存储与零拷贝快照 (2026 Q2-Q3)
+### 第二阶段: 极速 Jail 存储与零拷贝快照 (2026年9月 - 10月)
+
 - [ ] **Linux Landlock LSM 集成**:
   - 在 Linux 5.13+ 内核层面实现非特权文件系统访问权限控制。
   - 精准授予各构建任务目录的读写权限，无需 root 权限。

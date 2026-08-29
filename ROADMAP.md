@@ -17,31 +17,31 @@ This roadmap outlines the technical phases, architectural milestones, and delive
 
 ```mermaid
 gantt
-    title Apple Technical Evolution Roadmap
+    title Apple Technical Evolution Roadmap (From Launch: Aug 2026)
     dateFormat  YYYY-MM
     section Phase 1: Deep Kernel Isolation
-    Linux Namespaces & cgroups v2           :done,    des1, 2026-01, 2026-04
-    Windows Job Objects & Restricted Tokens  :done,    des2, 2026-01, 2026-04
-    macOS Seatbelt & Live IO Interceptor     :done,    des3, 2026-02, 2026-04
+    Linux Namespaces & cgroups v2           :done,    des1, 2026-08, 2026-09
+    Windows Job Objects & Restricted Tokens  :done,    des2, 2026-08, 2026-09
+    macOS Seatbelt & Live IO Interceptor     :done,    des3, 2026-08, 2026-09
     section Phase 2: High-Performance Storage
-    Landlock LSM Integration               :active,  des4, 2026-04, 2026-06
-    OverlayFS & CoW Block Cloning           :         des5, 2026-05, 2026-07
-    Differential Artifact Extraction        :         des6, 2026-06, 2026-08
+    Landlock LSM Integration               :active,  des4, 2026-09, 2026-10
+    OverlayFS & CoW Block Cloning           :         des5, 2026-09, 2026-10
+    Differential Artifact Extraction        :         des6, 2026-10, 2026-11
     section Phase 3: Live Streaming & IPC
-    Chunked Stdout/Stderr Streaming         :         des7, 2026-07, 2026-09
-    Real-Time Resource Telemetry Broadcast  :         des8, 2026-08, 2026-10
-    Graceful Task Cancellation Protocol     :         des9, 2026-09, 2026-10
+    Chunked Stdout/Stderr Streaming         :         des7, 2026-10, 2026-11
+    Real-Time Resource Telemetry Broadcast  :         des8, 2026-10, 2026-12
+    Graceful Task Cancellation Protocol     :         des9, 2026-11, 2026-12
     section Phase 4: Supply Chain Security
-    SLSA v1.0 Provenance Generation         :         des10, 2026-10, 2026-12
-    Ed25519 Cryptographic Attestation       :         des11, 2026-11, 2026-12
-    Automated SPDX/CycloneDX SBOM Scaffolding:        des12, 2026-11, 2027-01
+    SLSA v1.0 Provenance Generation         :         des10, 2026-11, 2027-01
+    Ed25519 Cryptographic Attestation       :         des11, 2026-12, 2027-01
+    Automated SPDX/CycloneDX SBOM Scaffolding:        des12, 2026-12, 2027-02
 ```
 
 ---
 
 ## 🎯 Phase Details
 
-### Phase 1: Deep OS Kernel Isolation & Process Containment (Completed)
+### Phase 1: Deep OS Kernel Isolation & Process Containment (August 2026 - Done)
 - [x] **Linux Kernel Namespaces**: Unprivileged container isolation (`CLONE_NEWNS`, `CLONE_NEWNET`, `CLONE_NEWPID`, `CLONE_NEWIPC`, `CLONE_NEWUTS`, `CLONE_NEWUSER`).
 - [x] **cgroups v2 Resource Accounting**: Strict hardware resource quotas for RAM (`memory.max`), CPU quota (`cpu.max`), and CPU core affinity (`cpuset.cpus`).
 - [x] **seccomp-bpf Syscall Filtering**: System call policy blocking unauthorized calls (`ptrace`, raw socket bindings when offline, kernel module operations).
@@ -51,7 +51,8 @@ gantt
 
 ---
 
-### Phase 2: Ultra-Fast Storage Jails & Zero-Copy Snapshots (Q2-Q3 2026)
+### Phase 2: Ultra-Fast Storage Jails & Zero-Copy Snapshots (Sept - Oct 2026)
+
 - [ ] **Linux Landlock LSM Integration**:
   - Unprivileged filesystem access restriction at the Linux kernel level (Kernel 5.13+).
   - Explicit read/write directory access grants without requiring root privileges.

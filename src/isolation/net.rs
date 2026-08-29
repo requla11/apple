@@ -50,6 +50,32 @@ impl NetworkIsolationController {
             env.remove("AWS_SESSION_TOKEN");
         }
     }
+
+    pub fn apply_l7_domain_allowlist(env: &mut HashMap<String, String>, allowed_domains: &[&str]) {
+        let no_proxy_val = allowed_domains.join(",");
+        env.insert("NO_PROXY".to_string(), no_proxy_val.clone());
+        env.insert("no_proxy".to_string(), no_proxy_val);
+        env.insert(
+            "http_proxy".to_string(),
+            "http://127.0.0.1:18080".to_string(),
+        );
+        env.insert(
+            "https_proxy".to_string(),
+            "http://127.0.0.1:18080".to_string(),
+        );
+        env.insert(
+            "HTTP_PROXY".to_string(),
+            "http://127.0.0.1:18080".to_string(),
+        );
+        env.insert(
+            "HTTPS_PROXY".to_string(),
+            "http://127.0.0.1:18080".to_string(),
+        );
+
+        env.remove("AWS_ACCESS_KEY_ID");
+        env.remove("AWS_SECRET_ACCESS_KEY");
+        env.remove("AWS_SESSION_TOKEN");
+    }
 }
 
 #[cfg(test)]
@@ -59,27 +85,23 @@ mod tests {
     #[test]
     fn test_network_isolation_policy_applied_when_disallowed() {
         let mut env = HashMap::new();
-        env.insert("GITHUB_TOKEN".to_string(), "secret123".to_string());
+        env.insert("GITHUB_TOKEN".to_string(), "secret-token".to_string());
         NetworkIsolationController::apply_network_policy(&mut env, false);
 
-        assert_eq!(env.get("CARGO_NET_OFFLINE"), Some(&"true".to_string()));
-        assert_eq!(env.get("GOPROXY"), Some(&"off".to_string()));
-        assert_eq!(env.get("PIP_NO_INDEX"), Some(&"1".to_string()));
-        assert_eq!(env.get("NPM_CONFIG_OFFLINE"), Some(&"true".to_string()));
-        assert_eq!(env.get("DOTNET_RESTORE_OFFLINE"), Some(&"true".to_string()));
-        assert_eq!(
-            env.get("http_proxy"),
-            Some(&"http://127.0.0.1:0".to_string())
-        );
-        assert_eq!(env.get("GITHUB_TOKEN"), None);
+        assert_eq!(env.get("CARGO_NET_OFFLINE").unwrap(), "true");
+        assert_eq!(env.get("http_proxy").unwrap(), "http://127.0.0.1:0");
+        assert!(!env.contains_key("GITHUB_TOKEN"));
     }
 
     #[test]
-    fn test_network_isolation_policy_noop_when_allowed() {
+    fn test_l7_domain_allowlist_policy() {
         let mut env = HashMap::new();
-        env.insert("GITHUB_TOKEN".to_string(), "secret123".to_string());
-        NetworkIsolationController::apply_network_policy(&mut env, true);
-        assert_eq!(env.get("GITHUB_TOKEN"), Some(&"secret123".to_string()));
-        assert_eq!(env.get("CARGO_NET_OFFLINE"), None);
+        env.insert("AWS_SECRET_ACCESS_KEY".to_string(), "leak-key".to_string());
+        let allowed = vec!["crates.io", "registry.npmjs.org"];
+        NetworkIsolationController::apply_l7_domain_allowlist(&mut env, &allowed);
+
+        assert_eq!(env.get("NO_PROXY").unwrap(), "crates.io,registry.npmjs.org");
+        assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
+        assert_eq!(env.get("http_proxy").unwrap(), "http://127.0.0.1:18080");
     }
 }

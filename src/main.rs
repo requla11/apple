@@ -1,9 +1,12 @@
+use apple::attestation::{AttestationEnvelope, AttestationSigner};
 use apple::audit::audit_record_path;
 use apple::daemon::AppleDaemonServer;
 use apple::profile_detector::ProfileDetector;
 use apple::protocol::{
     ExecutionRequest, ExecutionResult, IsolationLevel, MountKind, MountRule, SandboxProfile,
 };
+use apple::provenance::SlsaProvenanceGenerator;
+use apple::sbom::SbomGenerator;
 use apple::verifier::DeterminismVerifier;
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
@@ -98,6 +101,55 @@ enum Commands {
         )]
         command: Vec<String>,
     },
+    Provenance {
+        #[arg(short, long, help = "Task ID from previous run audit")]
+        task_id: String,
+
+        #[arg(short, long, help = "Path to output artifact")]
+        artifacts: Vec<PathBuf>,
+
+        #[arg(short, long, help = "Output path to write provenance JSON")]
+        output: Option<PathBuf>,
+    },
+    Sbom {
+        #[arg(
+            short,
+            long,
+            default_value = "spdx",
+            help = "Format: spdx or cyclonedx"
+        )]
+        format: String,
+
+        #[arg(short, long, help = "Task ID")]
+        task_id: String,
+
+        #[arg(short, long, help = "Path to artifacts")]
+        artifacts: Vec<PathBuf>,
+
+        #[arg(short, long, help = "Output path to write SBOM JSON")]
+        output: Option<PathBuf>,
+    },
+    Attest {
+        #[arg(short, long, help = "Path to provenance file")]
+        provenance: PathBuf,
+
+        #[arg(short, long, help = "Secret key hex string (32 bytes)")]
+        secret_key: String,
+
+        #[arg(
+            short,
+            long,
+            default_value = "apple-builder-key-1",
+            help = "Key ID identifier"
+        )]
+        key_id: String,
+
+        #[arg(short, long, help = "Verify instead of sign")]
+        verify: bool,
+
+        #[arg(short, long, help = "Path to envelope JSON if verifying")]
+        envelope: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -127,17 +179,11 @@ async fn main() -> anyhow::Result<()> {
             command,
         } => {
             let cwd = workdir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            // The scratch dir must be absolute: relative paths would leak
-            // into TMP/TEMP and break tools that resolve them against their
-            // own working directory (e.g. link.exe temp files).
             let scratch = std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
                 .join(DEFAULT_SCRATCH);
             let server = AppleDaemonServer::new(scratch);
 
-            // Mirror the whole working directory into the jail via hard
-            // links so the sandboxed command sees its inputs (and writes
-            // through to the original tree for pre-existing files).
             let mut profile = SandboxProfile {
                 mount_rules: vec![MountRule {
                     source: cwd.clone(),
@@ -162,8 +208,6 @@ async fn main() -> anyhow::Result<()> {
                 argv: command,
                 env: std::env::vars().collect::<HashMap<_, _>>(),
                 profile,
-                // Keep the jail so newly produced artifacts survive after
-                // the command exits.
                 keep_jail: true,
             };
 
@@ -281,16 +325,124 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
+        Commands::Provenance {
+            task_id,
+            artifacts,
+            output,
+        } => {
+            let Some(res) = load_audit_record(&task_id) else {
+                eprintln!("Error: no audit record found for task {task_id}");
+                std::process::exit(1);
+            };
+
+            let req = ExecutionRequest {
+                task_id: task_id.clone(),
+                working_dir: std::env::current_dir().unwrap_or_default(),
+                argv: Vec::new(),
+                env: HashMap::new(),
+                profile: SandboxProfile::default(),
+                keep_jail: false,
+            };
+
+            let statement = SlsaProvenanceGenerator::generate(&req, &res, &artifacts)?;
+            let json = serde_json::to_string_pretty(&statement)?;
+
+            if let Some(out_path) = output {
+                std::fs::write(&out_path, &json)?;
+                println!("🍎 SLSA v1.0 Provenance written to {}", out_path.display());
+            } else {
+                println!("{json}");
+            }
+        }
+        Commands::Sbom {
+            format,
+            task_id,
+            artifacts,
+            output,
+        } => {
+            let json = match format.to_lowercase().as_str() {
+                "spdx" => {
+                    let doc = SbomGenerator::generate_spdx(&task_id, &artifacts)?;
+                    serde_json::to_string_pretty(&doc)?
+                }
+                "cyclonedx" => {
+                    let bom = SbomGenerator::generate_cyclonedx(&task_id, &artifacts)?;
+                    serde_json::to_string_pretty(&bom)?
+                }
+                other => {
+                    eprintln!("Unsupported SBOM format: {other}. Use 'spdx' or 'cyclonedx'");
+                    std::process::exit(1);
+                }
+            };
+
+            if let Some(out_path) = output {
+                std::fs::write(&out_path, &json)?;
+                println!("🍎 SBOM ({format}) written to {}", out_path.display());
+            } else {
+                println!("{json}");
+            }
+        }
+        Commands::Attest {
+            provenance,
+            secret_key,
+            key_id,
+            verify,
+            envelope,
+        } => {
+            let key_bytes = decode_hex_key(&secret_key)?;
+
+            if verify {
+                let Some(env_path) = envelope else {
+                    eprintln!("Error: --envelope path is required for verification");
+                    std::process::exit(1);
+                };
+                let content = std::fs::read_to_string(&env_path)?;
+                let env: AttestationEnvelope = serde_json::from_str(&content)?;
+                let valid = AttestationSigner::verify_envelope(&env, &key_bytes)?;
+                if valid {
+                    println!("🍎 Attestation signature verified successfully ✅");
+                } else {
+                    eprintln!("❌ Attestation signature verification FAILED");
+                    std::process::exit(1);
+                }
+            } else {
+                let content = std::fs::read_to_string(&provenance)?;
+                let stmt = serde_json::from_str(&content)?;
+                let env = AttestationSigner::sign_statement(&stmt, &key_bytes, &key_id)?;
+                let json = serde_json::to_string_pretty(&env)?;
+                println!("{json}");
+            }
+        }
     }
 
     Ok(())
 }
 
-/// Load an audit record previously persisted by the daemon from the default
-/// scratch directory. Returns `None` when no record exists — the CLI never
-/// invents placeholder data.
 fn load_audit_record(task_id: &str) -> Option<ExecutionResult> {
     let path = audit_record_path(Path::new(DEFAULT_SCRATCH), task_id);
     let body = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&body).ok()
+}
+
+fn decode_hex_key(hex_str: &str) -> anyhow::Result<[u8; 32]> {
+    let raw = hex_str.trim().as_bytes();
+    let mut key = [0u8; 32];
+    if raw.len() != 64 {
+        anyhow::bail!("secret key must be exactly 64 hex characters (32 bytes)");
+    }
+    for i in 0..32 {
+        let h1 = parse_hex_digit(raw[i * 2])?;
+        let h2 = parse_hex_digit(raw[i * 2 + 1])?;
+        key[i] = (h1 << 4) | h2;
+    }
+    Ok(key)
+}
+
+fn parse_hex_digit(byte: u8) -> anyhow::Result<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => anyhow::bail!("invalid hex character"),
+    }
 }

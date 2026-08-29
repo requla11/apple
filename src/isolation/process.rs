@@ -399,7 +399,10 @@ mod tests {
                 seccomp_filter: true,
                 appcontainer: false,
                 declared_inputs: Vec::new(),
+                max_processes: None,
+                numa_node: None,
             },
+
             keep_jail: true,
         };
 
@@ -442,6 +445,8 @@ mod tests {
                 seccomp_filter: true,
                 appcontainer: false,
                 declared_inputs: Vec::new(),
+                max_processes: None,
+                numa_node: None,
             },
             keep_jail: true,
         };
@@ -505,6 +510,8 @@ mod tests {
                 seccomp_filter: true,
                 appcontainer: false,
                 declared_inputs: Vec::new(),
+                max_processes: None,
+                numa_node: None,
             },
             keep_jail: true,
         };

@@ -192,7 +192,10 @@ mod tests {
                 seccomp_filter: true,
                 appcontainer: false,
                 declared_inputs: vec![input_file.clone()],
+                max_processes: None,
+                numa_node: None,
             },
+
             keep_jail: false,
         };
 

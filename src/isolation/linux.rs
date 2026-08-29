@@ -1,5 +1,42 @@
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinuxIsolationTier {
+    FullNamespacesAndCgroup,
+    LandlockAndSeccomp,
+    SeccompOnly,
+    FallbackJail,
+}
+
+pub struct LinuxCapabilityProber;
+
+impl LinuxCapabilityProber {
+    pub fn probe_tier() -> LinuxIsolationTier {
+        #[cfg(target_os = "linux")]
+        {
+            let userns_enabled =
+                std::fs::read_to_string("/proc/sys/kernel/unprivileged_userns_clone")
+                    .map(|s| s.trim() == "1")
+                    .unwrap_or(true);
+
+            let landlock_available = Path::new("/sys/kernel/security/lsm").exists()
+                || Path::new("/proc/sys/kernel").exists();
+
+            if userns_enabled {
+                LinuxIsolationTier::FullNamespacesAndCgroup
+            } else if landlock_available {
+                LinuxIsolationTier::LandlockAndSeccomp
+            } else {
+                LinuxIsolationTier::SeccompOnly
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            LinuxIsolationTier::FallbackJail
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxNamespaceConfig {
     pub new_net: bool,
@@ -167,6 +204,18 @@ impl SeccompProfileBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_linux_capability_prober() {
+        let tier = LinuxCapabilityProber::probe_tier();
+        assert!(matches!(
+            tier,
+            LinuxIsolationTier::FullNamespacesAndCgroup
+                | LinuxIsolationTier::LandlockAndSeccomp
+                | LinuxIsolationTier::SeccompOnly
+                | LinuxIsolationTier::FallbackJail
+        ));
+    }
 
     #[test]
     fn test_linux_namespace_config_defaults() {

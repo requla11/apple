@@ -1,9 +1,10 @@
 use crate::audit::{AuditStore, audit_record_path};
 use crate::isolation::{
-    HermeticEnvironmentSanitizer, HermeticFilesystemManager, NetworkIsolationController,
-    ProcessIsolationRunner,
+    HermeticEnvironmentSanitizer, HermeticFilesystemManager, HermeticToolchainSanitizer,
+    NetworkIsolationController, ProcessIsolationRunner,
 };
 use crate::protocol::{DaemonMessage, ExecutionRequest, ExecutionResult};
+
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -199,6 +200,10 @@ impl AppleDaemonServer {
         NetworkIsolationController::apply_network_policy(
             &mut sanitized_env,
             request.profile.allow_network,
+        );
+        HermeticToolchainSanitizer::inject_deterministic_flags(
+            &mut sanitized_env,
+            jail_dir.as_deref(),
         );
         request.env = sanitized_env;
 

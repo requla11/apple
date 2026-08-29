@@ -1,5 +1,30 @@
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacOsIsolationTier {
+    SeatbeltSbpl,
+    PosixSpawnClean,
+    EnvironmentOnly,
+}
+
+pub struct MacOsIsolationEngine;
+
+impl MacOsIsolationEngine {
+    pub fn probe_isolation_tier() -> MacOsIsolationTier {
+        #[cfg(target_os = "macos")]
+        {
+            if std::path::Path::new("/usr/bin/sandbox-exec").exists() {
+                return MacOsIsolationTier::SeatbeltSbpl;
+            }
+            MacOsIsolationTier::PosixSpawnClean
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            MacOsIsolationTier::EnvironmentOnly
+        }
+    }
+}
+
 pub struct SeatbeltProfileBuilder;
 
 impl SeatbeltProfileBuilder {
@@ -44,6 +69,7 @@ impl SeatbeltProfileBuilder {
             sbpl.push_str("(allow network*)\n");
         } else {
             sbpl.push_str("(deny network*)\n");
+            sbpl.push_str("(deny system-socket)\n");
         }
 
         sbpl
@@ -76,6 +102,7 @@ mod tests {
         assert!(profile.contains("(version 1)"));
         assert!(profile.contains("(deny default)"));
         assert!(profile.contains("(deny network*)"));
+        assert!(profile.contains("(deny system-socket)"));
         assert!(profile.contains("/var/tmp/apple_jail"));
         assert!(profile.contains("/opt/rust"));
         assert!(profile.contains("/var/tmp/apple_jail/out"));
@@ -92,5 +119,16 @@ mod tests {
         assert_eq!(wrapped[2], "(version 1)");
         assert_eq!(wrapped[3], "--");
         assert_eq!(wrapped[4], "clang");
+    }
+
+    #[test]
+    fn test_macos_isolation_tier_probe() {
+        let tier = MacOsIsolationEngine::probe_isolation_tier();
+        assert!(matches!(
+            tier,
+            MacOsIsolationTier::SeatbeltSbpl
+                | MacOsIsolationTier::PosixSpawnClean
+                | MacOsIsolationTier::EnvironmentOnly
+        ));
     }
 }

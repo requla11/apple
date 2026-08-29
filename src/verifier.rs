@@ -17,12 +17,6 @@ pub struct VerificationReport {
     pub pass2_duration_ms: u64,
 }
 
-/// Runs the same build twice in fresh hermetic jails and compares the
-/// artifact hash between passes. Pass 1 runs with the caller's environment;
-/// pass 2 runs with perturbed locale/time environment variables. A build is
-/// reported deterministic when both passes produce the same BLAKE3 hash.
-///
-/// This is a self-declared reproducibility check, not an SLSA attestation.
 pub struct DeterminismVerifier {
     scratch_dir: PathBuf,
 }
@@ -78,9 +72,6 @@ impl DeterminismVerifier {
         })
     }
 
-    /// Run one build pass inside a fresh jail. The jail is intentionally
-    /// left on disk so the caller can hash the artifact; call
-    /// `cleanup_pass` once done.
     async fn run_pass(
         &self,
         base: &ExecutionRequest,
@@ -114,8 +105,6 @@ impl DeterminismVerifier {
         ProcessIsolationRunner::run_sandboxed(request).await
     }
 
-    /// Hash the artifact produced inside the pass jail while it still
-    /// exists on disk.
     fn hash_jail_artifact(
         &self,
         task_id_with_suffix: &str,
@@ -139,5 +128,26 @@ impl DeterminismVerifier {
     fn cleanup_pass(&self, base_task_id: &str, suffix: &str) {
         let fs_mgr = HermeticFilesystemManager::new(&self.scratch_dir);
         let _ = fs_mgr.cleanup_jail(&format!("{base_task_id}_{suffix}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verification_report_creation() {
+        let report = VerificationReport {
+            task_id: "task_123".to_string(),
+            artifact_path: "target/release/app".to_string(),
+            is_deterministic: true,
+            pass1_hash: "abc".to_string(),
+            pass2_hash: "abc".to_string(),
+            pass1_duration_ms: 100,
+            pass2_duration_ms: 95,
+        };
+
+        assert!(report.is_deterministic);
+        assert_eq!(report.pass1_hash, report.pass2_hash);
     }
 }

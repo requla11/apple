@@ -1,10 +1,5 @@
 use std::collections::HashMap;
 
-/// Best-effort, toolchain-level network discouragement: injects blackhole
-/// proxy variables and offline flags honored by Cargo, Go, pip and npm.
-/// This is *not* a firewall — a process that ignores proxy environment
-/// variables still has network access. Kernel-level network namespaces are
-/// required for hard enforcement and are not implemented here.
 pub struct NetworkIsolationController;
 
 impl NetworkIsolationController {
@@ -21,6 +16,47 @@ impl NetworkIsolationController {
             env.insert("GOPROXY".to_string(), "off".to_string());
             env.insert("PIP_NO_INDEX".to_string(), "1".to_string());
             env.insert("NPM_CONFIG_OFFLINE".to_string(), "true".to_string());
+            env.insert("YARN_OFFLINE".to_string(), "true".to_string());
+            env.insert("PNPM_OFFLINE".to_string(), "true".to_string());
+            env.insert("MAVEN_OPTS".to_string(), "-Dmaven.offline=true".to_string());
+            env.insert(
+                "GRADLE_OPTS".to_string(),
+                "-Dorg.gradle.offline=true".to_string(),
+            );
+            env.insert("DOTNET_RESTORE_OFFLINE".to_string(), "true".to_string());
+            env.insert(
+                "SWIFT_PACKAGE_COLLECTIONS_ONLINE".to_string(),
+                "false".to_string(),
+            );
+            env.insert("PUB_CACHE_OFFLINE".to_string(), "true".to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_network_isolation_policy_applied_when_disallowed() {
+        let mut env = HashMap::new();
+        NetworkIsolationController::apply_network_policy(&mut env, false);
+
+        assert_eq!(env.get("CARGO_NET_OFFLINE"), Some(&"true".to_string()));
+        assert_eq!(env.get("GOPROXY"), Some(&"off".to_string()));
+        assert_eq!(env.get("PIP_NO_INDEX"), Some(&"1".to_string()));
+        assert_eq!(env.get("NPM_CONFIG_OFFLINE"), Some(&"true".to_string()));
+        assert_eq!(env.get("DOTNET_RESTORE_OFFLINE"), Some(&"true".to_string()));
+        assert_eq!(
+            env.get("http_proxy"),
+            Some(&"http://127.0.0.1:0".to_string())
+        );
+    }
+
+    #[test]
+    fn test_network_isolation_policy_noop_when_allowed() {
+        let mut env = HashMap::new();
+        NetworkIsolationController::apply_network_policy(&mut env, true);
+        assert!(env.is_empty());
     }
 }

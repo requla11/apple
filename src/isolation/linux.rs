@@ -24,6 +24,7 @@ impl Default for LinuxNamespaceConfig {
 }
 
 impl LinuxNamespaceConfig {
+    #[allow(unused_mut)]
     pub fn compute_clone_flags(&self) -> i32 {
         let mut flags = 0;
         #[cfg(target_os = "linux")]
@@ -65,6 +66,10 @@ impl CgroupV2Controller {
             cgroup_root,
             task_id,
         }
+    }
+
+    pub fn cgroup_root(&self) -> &Path {
+        &self.cgroup_root
     }
 
     pub fn setup_limits(
@@ -128,6 +133,7 @@ impl CgroupV2Controller {
     }
 }
 
+
 pub struct SeccompProfileBuilder;
 
 impl SeccompProfileBuilder {
@@ -178,8 +184,9 @@ mod tests {
     fn test_cgroupv2_controller_path() {
         let ctrl = CgroupV2Controller::new("/sys/fs/cgroup", "task_build_1");
         assert_eq!(ctrl.task_id(), "task_build_1");
-        assert!(ctrl.cgroup_root.ends_with("apple_sandbox/task_build_1"));
+        assert!(ctrl.cgroup_root().ends_with("apple_sandbox/task_build_1"));
     }
+
 
     #[test]
     fn test_seccomp_profile_filter_offline_denials() {

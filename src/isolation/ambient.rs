@@ -31,17 +31,12 @@ impl AmbientDaemonScrubber {
         let path_str = path.to_string_lossy();
         let lower = path_str.to_lowercase();
 
-        if lower.contains("docker.sock")
+        lower.contains("docker.sock")
             || lower.contains("podman.sock")
             || lower.contains(".x11-unix")
             || lower.contains("ssh-agent")
             || lower.contains("keyring")
             || lower.contains("\\\\.\\pipe\\docker_")
-        {
-            return true;
-        }
-
-        false
     }
 }
 
